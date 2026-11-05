@@ -207,30 +207,36 @@ async function deleteFollowUp(fu) {
 
 function activityIcon(activity) {
   const icons = {
-    created: 'pi pi-plus-circle',
-    updated: 'pi pi-pencil',
+    created:              'pi pi-plus-circle',
+    updated:              'pi pi-pencil',
     moved_to_transmittal: 'pi pi-arrow-right',
-    deleted: 'pi pi-trash',
+    archived:             'pi pi-box',
+    restored:             'pi pi-undo',
+    deleted:              'pi pi-trash',
   }
   return icons[activity] || 'pi pi-circle'
 }
 
 function activityColor(activity) {
   const colors = {
-    created: '#22c55e',
-    updated: '#3b82f6',
+    created:              '#22c55e',
+    updated:              '#3b82f6',
     moved_to_transmittal: '#f59e0b',
-    deleted: '#ef4444',
+    archived:             '#8b5cf6',
+    restored:             '#06b6d4',
+    deleted:              '#ef4444',
   }
   return colors[activity] || '#94a3b8'
 }
 
 function activityLabel(activity) {
   const labels = {
-    created: 'Record Created',
-    updated: 'Record Updated',
+    created:              'Record Created',
+    updated:              'Record Updated',
     moved_to_transmittal: 'Moved to Transmittal',
-    deleted: 'Record Deleted',
+    archived:             'Record Archived',
+    restored:             'Record Restored',
+    deleted:              'Record Deleted',
   }
   return labels[activity] || activity
 }
