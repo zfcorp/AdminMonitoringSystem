@@ -98,7 +98,8 @@ function formatDateTime(val) {
 }
 
 function openDetail(record) {
-  router.push({ name: 'record-detail', params: { id: record.id } })
+  const name = record.module === 'transmittal' ? 'transmittal-detail' : 'record-detail'
+  router.push({ name, params: { id: record.id } })
 }
 
 // ── Restore ───────────────────────────────────────────────────

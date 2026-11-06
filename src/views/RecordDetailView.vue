@@ -83,10 +83,12 @@ function goToEdit() {
 }
 
 function goBack() {
-  if (isBorrowed.value) {
-    router.push({ name: 'borrowed-records' })
+  const mod = record.value?.module
+  const archived = record.value?.is_archived
+  if (mod === 'transmittal') {
+    router.push({ name: archived ? 'archive-transmittal' : 'transmittal-records' })
   } else {
-    router.push({ name: 'transmittal-records' })
+    router.push({ name: archived ? 'archive-borrowed' : 'borrowed-records' })
   }
 }
 
@@ -246,7 +248,11 @@ function activityLabel(activity) {
   <div>
     <!-- Back button -->
     <button class="back-btn" @click="goBack">
-      ← {{ isBorrowed ? 'Back to Borrowed' : 'Back to Transmittal' }}
+      ← Back to
+      <span v-if="record?.module === 'transmittal' && record?.is_archived">Transmittal Archive</span>
+      <span v-else-if="record?.module === 'transmittal'">Transmittal</span>
+      <span v-else-if="record?.is_archived">Borrowed Archive</span>
+      <span v-else>Borrowed</span>
     </button>
 
     <div v-if="loading" class="loading-state">Loading…</div>
@@ -267,7 +273,7 @@ function activityLabel(activity) {
             <Button label="Cancel" text @click="cancelEdit" />
             <Button label="Save Changes" icon="pi pi-check" :loading="editSaving" @click="saveEdit" />
           </template>
-          <Button v-else label="Edit" icon="pi pi-pencil" @click="startEdit" />
+          <Button v-else-if="!record.is_archived" label="Edit" icon="pi pi-pencil" @click="startEdit" />
         </div>
       </div>
 

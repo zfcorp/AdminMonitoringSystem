@@ -61,6 +61,12 @@ const routes = [
         meta: { title: 'Record Details' },
       },
       {
+        path: 'transmittal-records/:id',
+        name: 'transmittal-detail',
+        component: RecordDetailView,
+        meta: { title: 'Record Details' },
+      },
+      {
         path: 'borrowed-records/:id/edit',
         name: 'record-edit',
         component: RecordFormView,

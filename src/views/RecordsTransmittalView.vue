@@ -109,7 +109,8 @@ async function handleArchive(record) {
 }
 
 function openDetail(record) {
-  router.push({ name: 'record-detail', params: { id: record.id } })
+  const name = record.module === 'transmittal' ? 'transmittal-detail' : 'record-detail'
+  router.push({ name, params: { id: record.id } })
 }
 
 function handleDelete(record) {
@@ -222,14 +223,6 @@ function formatDate(val) {
       <Column header="Received By">
         <template #body="slotProps">{{ slotProps.data.received_by || '—' }}</template>
       </Column>
-      <Column header="Transferred On" style="width: 130px">
-        <template #body="slotProps">
-          <span v-if="slotProps.data.transferred_at" class="transferred">
-            {{ formatDate(slotProps.data.transferred_at) }}
-          </span>
-          <span v-else class="dim">—</span>
-        </template>
-      </Column>
       <Column header="Actions" style="width: 150px; white-space: nowrap">
         <template #body="slotProps">
           <div class="action-btns">
@@ -239,9 +232,6 @@ function formatDate(val) {
             <button class="act-btn act-btn--edit" @click.stop="router.push({ name: 'record-edit', params: { id: slotProps.data.id } })" title="Edit">
               <i class="pi pi-pencil" />
             </button>
-            <button
-              v-if="authStore.isAdmin()"
-              class="act-btn act-btn--archive"
               @click.stop="handleArchive(slotProps.data)"
               title="Archive"
             >
