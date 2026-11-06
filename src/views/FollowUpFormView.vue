@@ -9,6 +9,7 @@ import Textarea from 'primevue/textarea'
 import Button from 'primevue/button'
 import { useToast } from 'primevue/usetoast'
 import { useFollowUpsStore } from '../stores/followUps'
+import { supabase } from '../lib/supabase'
 import { format, parseISO } from 'date-fns'
 
 const route = useRoute()
@@ -22,23 +23,32 @@ const isEditing = computed(() => !!editingId.value)
 const parentTypeOptions = [
   { label: 'Transmittal', value: 'transmittal' },
   { label: 'Borrowed Item', value: 'borrowed' },
+  { label: 'Record (Borrowed/Transmittal)', value: 'record' },
 ]
 
 const form = ref({
-  parentType: null,
-  transmittal_id: null,
+  parentType:       null,
+  transmittal_id:   null,
   borrowed_item_id: null,
-  follow_up_date: null,
-  subject: '',
-  details: '',
-  status: '',
-  resolved_date: null,
-  remarks: '',
+  record_id:        null,
+  follow_up_date:   null,
+  subject:          '',
+  details:          '',
+  status:           '',
+  resolved_date:    null,
+  remarks:          '',
 })
 
-const selectedParent = ref(null)
+const selectedParent   = ref(null)
 const parentSuggestions = ref([])
-const saving = ref(false)
+const saving           = ref(false)
+
+// ── Derive parent type from the loaded follow-up ───────────────
+function deriveParentType(data) {
+  if (data.record_id)        return 'record'
+  if (data.transmittal_id)   return 'transmittal'
+  return 'borrowed'
+}
 
 onMounted(async () => {
   if (editingId.value) {
@@ -49,68 +59,107 @@ onMounted(async () => {
       return
     }
 
+    const parentType = deriveParentType(data)
+
     form.value = {
-      parentType: data.transmittal_id ? 'transmittal' : 'borrowed',
-      transmittal_id: data.transmittal_id,
-      borrowed_item_id: data.borrowed_item_id,
-      follow_up_date: data.follow_up_date ? parseISO(data.follow_up_date) : null,
-      subject: data.subject || '',
-      details: data.details || '',
-      status: data.status || '',
-      resolved_date: data.resolved_date ? parseISO(data.resolved_date) : null,
-      remarks: data.remarks || '',
+      parentType,
+      transmittal_id:   data.transmittal_id   || null,
+      borrowed_item_id: data.borrowed_item_id || null,
+      record_id:        data.record_id        || null,
+      follow_up_date:   data.follow_up_date   ? parseISO(data.follow_up_date)  : null,
+      subject:          data.subject          || '',
+      details:          data.details          || '',
+      status:           data.status           || '',
+      resolved_date:    data.resolved_date    ? parseISO(data.resolved_date)   : null,
+      remarks:          data.remarks          || '',
     }
 
-    // Set selected parent for display
-    if (data.transmittals) {
+    // Pre-fill the autocomplete display value
+    if (data.records) {
+      selectedParent.value = { id: data.record_id, reference_number: data.records.reference_number }
+    } else if (data.transmittals) {
       selectedParent.value = data.transmittals
     } else if (data.borrowed_items) {
       selectedParent.value = data.borrowed_items
     }
   } else {
-    // Check for query params (pre-selected parent from another view)
+    // Pre-select from query params
     const pType = route.query.parentType
-    const pId = route.query.parentId
-    const pRef = route.query.parentRef
+    const pId   = route.query.parentId
+    const pRef  = route.query.parentRef
 
     if (pType && pId) {
       form.value.parentType = pType
-      if (pType === 'transmittal') {
-        form.value.transmittal_id = Number(pId)
-      } else {
-        form.value.borrowed_item_id = Number(pId)
-      }
-      if (pRef) {
-        selectedParent.value = { id: Number(pId), reference_number: pRef }
-      }
+      if (pType === 'transmittal')     form.value.transmittal_id   = Number(pId)
+      else if (pType === 'record')     form.value.record_id        = Number(pId)
+      else                             form.value.borrowed_item_id = Number(pId)
+      if (pRef) selectedParent.value = { id: Number(pId), reference_number: pRef }
     }
   }
 })
 
+// ── Autocomplete search ───────────────────────────────────────
 async function onParentSearch(event) {
   if (!form.value.parentType) return
-  const { data } = await followUpsStore.searchParents(form.value.parentType, event.query)
-  parentSuggestions.value = data || []
+  const query = event.query?.trim()
+  if (!query) { parentSuggestions.value = []; return }
+
+  if (form.value.parentType === 'record') {
+    // Search the records table by reference_number or client name
+    const { data: matchingClients } = await supabase
+      .from('clients').select('id').ilike('name', `%${query}%`).limit(10)
+    const clientIds = (matchingClients || []).map((c) => c.id)
+
+    let q = supabase
+      .from('records')
+      .select('id, reference_number, module, clients(name)')
+      .eq('is_archived', false)
+      .order('reference_number')
+      .limit(10)
+
+    if (clientIds.length) {
+      q = q.or(`reference_number.ilike.%${query}%,client_id.in.(${clientIds.join(',')})`)
+    } else {
+      q = q.ilike('reference_number', `%${query}%`)
+    }
+
+    const { data } = await q
+    parentSuggestions.value = (data || []).map((r) => ({
+      ...r,
+      // Show reference + client name in the autocomplete
+      reference_number: `${r.reference_number} — ${r.clients?.name ?? ''}`,
+    }))
+  } else {
+    const { data } = await followUpsStore.searchParents(form.value.parentType, query)
+    parentSuggestions.value = data || []
+  }
 }
 
+// ── Sync selected parent to form FKs ─────────────────────────
 watch(selectedParent, (val) => {
-  if (val && typeof val === 'object' && val?.id) {
-    if (form.value.parentType === 'transmittal') {
-      form.value.transmittal_id = val.id
-      form.value.borrowed_item_id = null
-    } else {
-      form.value.borrowed_item_id = val.id
-      form.value.transmittal_id = null
-    }
-  }
+  if (!val || typeof val !== 'object' || !val.id) return
+
+  // Reset all three FKs first
+  form.value.transmittal_id   = null
+  form.value.borrowed_item_id = null
+  form.value.record_id        = null
+
+  if (form.value.parentType === 'transmittal')     form.value.transmittal_id   = val.id
+  else if (form.value.parentType === 'record')     form.value.record_id        = val.id
+  else                                             form.value.borrowed_item_id = val.id
 })
 
+// ── Save ──────────────────────────────────────────────────────
 async function save() {
   if (!form.value.parentType) {
     toast.add({ severity: 'warn', summary: 'Required', detail: 'Select a parent record type.', life: 3000 })
     return
   }
-  if (!form.value.transmittal_id && !form.value.borrowed_item_id) {
+  const hasParent =
+    form.value.transmittal_id   ||
+    form.value.borrowed_item_id ||
+    form.value.record_id
+  if (!hasParent) {
     toast.add({ severity: 'warn', summary: 'Required', detail: 'Select a parent record.', life: 3000 })
     return
   }
@@ -118,14 +167,15 @@ async function save() {
   saving.value = true
 
   const payload = {
-    transmittal_id: form.value.parentType === 'transmittal' ? form.value.transmittal_id : null,
-    borrowed_item_id: form.value.parentType === 'borrowed' ? form.value.borrowed_item_id : null,
-    follow_up_date: form.value.follow_up_date ? format(form.value.follow_up_date, 'yyyy-MM-dd') : null,
-    subject: form.value.subject || null,
-    details: form.value.details || null,
-    status: form.value.status || null,
-    resolved_date: form.value.resolved_date ? format(form.value.resolved_date, 'yyyy-MM-dd') : null,
-    remarks: form.value.remarks || null,
+    transmittal_id:   form.value.parentType === 'transmittal' ? form.value.transmittal_id   : null,
+    borrowed_item_id: form.value.parentType === 'borrowed'    ? form.value.borrowed_item_id : null,
+    record_id:        form.value.parentType === 'record'      ? form.value.record_id        : null,
+    follow_up_date:   form.value.follow_up_date  ? format(form.value.follow_up_date,  'yyyy-MM-dd') : null,
+    subject:          form.value.subject   || null,
+    details:          form.value.details   || null,
+    status:           form.value.status    || null,
+    resolved_date:    form.value.resolved_date ? format(form.value.resolved_date, 'yyyy-MM-dd') : null,
+    remarks:          form.value.remarks   || null,
   }
 
   const { data, error } = isEditing.value
@@ -179,8 +229,9 @@ function cancel() {
             :suggestions="parentSuggestions"
             :force-selection="false"
             optionLabel="reference_number"
-            :disabled="!form.parentType"
-            placeholder="Type reference number to search…"
+            :disabled="!form.parentType || isEditing"
+            placeholder="Type reference number or client name…"
+            empty-search-message=" "
             @complete="onParentSearch"
           />
         </label>
@@ -237,16 +288,3 @@ function cancel() {
     </div>
   </div>
 </template>
-
-<style scoped>
-.resolve-note {
-  background: #fef3c7;
-  color: #92400e;
-  padding: 0.5rem 0.75rem;
-  border-radius: 6px;
-  font-size: 0.8rem;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-</style>

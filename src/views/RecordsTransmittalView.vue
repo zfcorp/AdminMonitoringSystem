@@ -229,9 +229,12 @@ function formatDate(val) {
             <button class="act-btn act-btn--view" @click.stop="openDetail(slotProps.data)" title="View">
               <i class="pi pi-eye" />
             </button>
-            <button class="act-btn act-btn--edit" @click.stop="router.push({ name: 'record-edit', params: { id: slotProps.data.id } })" title="Edit">
+            <button class="act-btn act-btn--edit" @click.stop="router.push({ name: 'transmittal-edit', params: { id: slotProps.data.id } })" title="Edit">
               <i class="pi pi-pencil" />
             </button>
+            <button
+              v-if="authStore.isAdmin()"
+              class="act-btn act-btn--archive"
               @click.stop="handleArchive(slotProps.data)"
               title="Archive"
             >

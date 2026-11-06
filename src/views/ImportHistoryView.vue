@@ -5,12 +5,10 @@ import Column from 'primevue/column'
 import Button from 'primevue/button'
 import Dialog from 'primevue/dialog'
 import { useImportsStore } from '../stores/imports'
-import { useConfirmDelete } from '../composables/useConfirmDelete'
 import { useToast } from 'primevue/usetoast'
 import { format, parseISO } from 'date-fns'
 
 const importsStore = useImportsStore()
-const { confirmDelete } = useConfirmDelete()
 const toast = useToast()
 
 const showDetails = ref(false)
@@ -41,8 +39,6 @@ async function openUndoDialog(importId) {
   await importsStore.fetchImportDetails(importId)
   showUndoDialog.value = true
 }
-
-const manuallyEditedCount = ref(0)
 
 function getManuallyEditedCount() {
   return importsStore.importDetails?.records?.filter((r) => r.manually_edited).length || 0

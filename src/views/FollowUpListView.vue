@@ -187,7 +187,7 @@ function handleDelete(record) {
         <template #body="slotProps">
           <RouterLink
             v-if="parentInfo(slotProps.data).recordId"
-            :to="{ name: 'record-detail', params: { id: parentInfo(slotProps.data).recordId } }"
+            :to="{ name: parentInfo(slotProps.data).type === 'Transmittal' ? 'transmittal-detail' : 'record-detail', params: { id: parentInfo(slotProps.data).recordId } }"
             class="parent-ref-link"
           >{{ parentInfo(slotProps.data).ref }}</RouterLink>
           <span v-else>{{ parentInfo(slotProps.data).ref || '—' }}</span>

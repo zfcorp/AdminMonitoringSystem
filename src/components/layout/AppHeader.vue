@@ -1,5 +1,5 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import AutoComplete from 'primevue/autocomplete'
 import { useAuthStore } from '../../stores/auth'
@@ -9,8 +9,6 @@ const router = useRouter()
 const authStore = useAuthStore()
 
 const userEmail = computed(() => authStore.user?.email ?? '')
-
-import { computed } from 'vue'
 
 const searchQuery = ref(null)
 const searchResults = ref([])
@@ -69,7 +67,8 @@ async function onSearch(event) {
 function onSelect(event) {
   const item = event.value
   if (item?.id) {
-    router.push({ name: 'record-detail', params: { id: item.id } })
+    const routeName = item.module === 'transmittal' ? 'transmittal-detail' : 'record-detail'
+    router.push({ name: routeName, params: { id: item.id } })
     searchQuery.value = null
   }
 }

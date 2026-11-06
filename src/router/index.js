@@ -73,6 +73,12 @@ const routes = [
         meta: { title: 'Edit Record' },
       },
       {
+        path: 'transmittal-records/:id/edit',
+        name: 'transmittal-edit',
+        component: RecordFormView,
+        meta: { title: 'Edit Record' },
+      },
+      {
         path: 'transmittal-records',
         name: 'transmittal-records',
         component: RecordsTransmittalView,

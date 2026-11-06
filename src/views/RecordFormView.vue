@@ -73,6 +73,8 @@ function loadDocChecks(val) {
   docChecks.value.orcr = parts.includes('orcr')
   docChecks.value.key  = parts.includes('key')
 }
+// New status inline creation
+const showStatusDialog = ref(false)
 const newStatusName = ref('')
 const savingStatus = ref(false)
 
@@ -108,6 +110,14 @@ onMounted(async () => {
     }
 
     recordModule.value = data.module || 'borrowed'
+
+    // Guard: archived records are read-only
+    if (data.is_archived) {
+      toast.add({ severity: 'warn', summary: 'Read-only', detail: 'Archived records cannot be edited. Restore first.', life: 5000 })
+      const detailRoute = data.module === 'transmittal' ? 'transmittal-detail' : 'record-detail'
+      router.push({ name: detailRoute, params: { id: editingId.value } })
+      return
+    }
 
     const f = {
       client_id: data.client_id,
@@ -187,7 +197,8 @@ async function save() {
 
   const targetId = isEditing.value ? editingId.value : result.data?.id
   if (isEditing.value && targetId) {
-    router.push({ name: 'record-detail', params: { id: targetId } })
+    const detailRoute = recordModule.value === 'transmittal' ? 'transmittal-detail' : 'record-detail'
+    router.push({ name: detailRoute, params: { id: targetId } })
   } else {
     router.push({ name: recordModule.value === 'transmittal' ? 'transmittal-records' : 'borrowed-records' })
   }
@@ -195,7 +206,8 @@ async function save() {
 
 function cancel() {
   if (isEditing.value) {
-    router.push({ name: 'record-detail', params: { id: editingId.value } })
+    const detailRoute = recordModule.value === 'transmittal' ? 'transmittal-detail' : 'record-detail'
+    router.push({ name: detailRoute, params: { id: editingId.value } })
   } else {
     router.push({ name: recordModule.value === 'transmittal' ? 'transmittal-records' : 'borrowed-records' })
   }
