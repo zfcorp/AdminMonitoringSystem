@@ -77,16 +77,24 @@ function formatDate(dateStr) {
 }
 
 function parentInfo(row) {
+  if (row.records) {
+    const routeName = row.records.module === 'transmittal' ? 'transmittal-detail' : 'record-detail'
+    return {
+      type: row.records.module === 'transmittal' ? 'Transmittal' : 'Borrowed',
+      ref: row.records.reference_number,
+      client: row.records.clients?.name,
+      account: row.records.client_accounts?.account_number,
+      recordId: row.record_id,
+      routeName,
+    }
+  }
   if (row.transmittals) {
-    return { type: 'Transmittal', ref: row.transmittals.reference_number, client: row.transmittals.clients?.name, account: row.transmittals.client_accounts?.account_number, recordId: null }
+    return { type: 'Transmittal', ref: row.transmittals.reference_number, client: row.transmittals.clients?.name, account: row.transmittals.client_accounts?.account_number, recordId: null, routeName: null }
   }
   if (row.borrowed_items) {
-    return { type: 'Borrowed', ref: row.borrowed_items.reference_number, client: row.borrowed_items.clients?.name, account: row.borrowed_items.client_accounts?.account_number, recordId: null }
+    return { type: 'Borrowed', ref: row.borrowed_items.reference_number, client: row.borrowed_items.clients?.name, account: row.borrowed_items.client_accounts?.account_number, recordId: null, routeName: null }
   }
-  if (row.records) {
-    return { type: row.records.module === 'transmittal' ? 'Transmittal' : 'Borrowed', ref: row.records.reference_number, client: row.records.clients?.name, account: row.records.client_accounts?.account_number, recordId: row.record_id }
-  }
-  return { type: '', ref: '', client: '', account: '', recordId: null }
+  return { type: '', ref: '', client: '', account: '', recordId: null, routeName: null }
 }
 
 function goToNew() {
@@ -186,8 +194,8 @@ function handleDelete(record) {
       <Column header="Ref. No." style="width: 100px">
         <template #body="slotProps">
           <RouterLink
-            v-if="parentInfo(slotProps.data).recordId"
-            :to="{ name: parentInfo(slotProps.data).type === 'Transmittal' ? 'transmittal-detail' : 'record-detail', params: { id: parentInfo(slotProps.data).recordId } }"
+            v-if="parentInfo(slotProps.data).routeName && parentInfo(slotProps.data).recordId"
+            :to="{ name: parentInfo(slotProps.data).routeName, params: { id: parentInfo(slotProps.data).recordId } }"
             class="parent-ref-link"
           >{{ parentInfo(slotProps.data).ref }}</RouterLink>
           <span v-else>{{ parentInfo(slotProps.data).ref || '—' }}</span>

@@ -52,20 +52,58 @@ const availableStatuses = computed(() =>
     : statusesStore.borrowedStatuses
 )
 
-// Document Transmitted checkboxes — quick-fill shortcuts
+// Document Transmitted — tag-based input
 const docChecks = ref({ orcr: false, key: false })
+const docOtherInput = ref('')
+
+function getTags() {
+  return (form.value.document_transmitted || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+}
+
+function setTags(tags) {
+  form.value.document_transmitted = tags.join(', ')
+}
 
 function syncDocuments() {
-  const current = form.value.document_transmitted || ''
-  // Build list of other text (anything not ORCR/Key)
-  const parts = current.split(',').map((s) => s.trim()).filter(Boolean)
-  const others = parts.filter((p) => !['orcr', 'key'].includes(p.toLowerCase()))
-
+  const current = getTags()
+  // Remove ORCR/Key from list, then re-add based on checkbox state
+  const others = current.filter((p) => !['orcr', 'key'].includes(p.toLowerCase()))
   const selected = []
   if (docChecks.value.orcr) selected.push('ORCR')
-  if (docChecks.value.key)  selected.push('Key')
+  if (docChecks.value.key) selected.push('Key')
+  setTags([...selected, ...others])
+}
 
-  form.value.document_transmitted = [...selected, ...others].join(', ')
+function addOtherTag() {
+  const val = docOtherInput.value.trim().replace(/,+$/, '')
+  if (!val) return
+  // Support comma-separated input at once
+  const newTags = val.split(',').map((s) => s.trim()).filter(Boolean)
+  const current = getTags()
+  const merged = [...current]
+  for (const t of newTags) {
+    if (!merged.some((m) => m.toLowerCase() === t.toLowerCase())) merged.push(t)
+  }
+  setTags(merged)
+  docOtherInput.value = ''
+}
+
+function removeTag(tag) {
+  const updated = getTags().filter((t) => t.toLowerCase() !== tag.toLowerCase())
+  setTags(updated)
+  // Sync checkboxes
+  docChecks.value.orcr = updated.some((t) => t.toLowerCase() === 'orcr')
+  docChecks.value.key = updated.some((t) => t.toLowerCase() === 'key')
+}
+
+function onDocInputKeydown(e) {
+  if (e.key === 'Enter' || e.key === ',') {
+    e.preventDefault()
+    addOtherTag()
+  }
 }
 
 function loadDocChecks(val) {
@@ -257,10 +295,21 @@ function cancel() {
               <span>Key</span>
             </label>
           </div>
-          <InputText
-            v-model="form.document_transmitted"
-            placeholder="e.g. ORCR, Key, CR…"
-          />
+          <!-- Tag display + free-text input -->
+          <div class="doc-tag-area">
+            <span v-for="tag in getTags()" :key="tag" class="doc-tag-pill">
+              {{ tag }}
+              <button type="button" class="doc-tag-remove" @click="removeTag(tag)">×</button>
+            </span>
+            <input
+              v-model="docOtherInput"
+              class="doc-tag-input"
+              placeholder="Add more… (Enter or comma)"
+              @keydown="onDocInputKeydown"
+              @blur="addOtherTag"
+            />
+          </div>
+          <span class="field-hint">Check ORCR / Key or type anything and press Enter</span>
         </div>
         <div class="form-field">
           <span class="field-label">Purpose / Status</span>
@@ -369,6 +418,58 @@ function cancel() {
   font-size: 0.85rem;
   font-weight: 500;
   color: #475569;
+}
+
+/* Tag input area */
+.doc-tag-area {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+  min-height: 38px;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  cursor: text;
+}
+.doc-tag-area:focus-within {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59,130,246,0.15);
+}
+.doc-tag-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.15rem 0.5rem 0.15rem 0.6rem;
+  background: #dbeafe;
+  color: #1e40af;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.doc-tag-remove {
+  background: none;
+  border: none;
+  color: #1e40af;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0;
+  margin-left: 0.1rem;
+  opacity: 0.6;
+}
+.doc-tag-remove:hover { opacity: 1; }
+.doc-tag-input {
+  flex: 1;
+  min-width: 120px;
+  border: none;
+  outline: none;
+  font-size: 0.85rem;
+  color: #1e293b;
+  background: transparent;
+  padding: 0.1rem 0.25rem;
 }
 
 /* Checkboxes quick-fill row */

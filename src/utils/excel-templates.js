@@ -1,42 +1,65 @@
 // Template version config — bump when fields change
 export const TEMPLATE_VERSIONS = {
-  transmittal: 1,
-  borrowed: 1,
+  transmittal: 3,
+  borrowed: 3,
+  archive_transmittal: 1,
+  archive_borrowed: 1,
   followup: 1,
 }
 
 // Field definitions for each template
 const TEMPLATE_FIELDS = {
   transmittal: [
-    { header: 'Client Name', required: true, sample: 'Juan dela Cruz' },
-    { header: 'Client Account ID', required: true, sample: 'ACC-001' },
-    { header: 'Date Released', required: false, sample: '2025-01-15' },
-    { header: 'Documents Transmitted', required: false, sample: 'Original ORCR' },
-    { header: 'Purpose', required: false, sample: 'For client release' },
-    { header: 'Date Transmitted', required: false, sample: '2025-01-10' },
-    { header: 'Received By', required: false, sample: 'THRU LBC' },
-    { header: 'Remarks', required: false, sample: '' },
+    { header: 'Client Name',           required: true,  sample: 'Juan dela Cruz'                                                                                       },
+    { header: 'Client Account ID',     required: false, sample: 'ACC-001'                                                                                              },
+    { header: 'Branch',                required: false, sample: 'VMSC Lipa'                                                                           },
+    { header: 'Date Released',         required: false, sample: '2025-01-15'                                                                          },
+    { header: 'Documents Transmitted', required: false, sample: 'Original ORCR'                                                                       },
+    { header: 'Purpose / Status',      required: false, sample: 'Closed Accounts (valid: Closed Accounts, Preterm, Repo Cash Sales, Not Account of Zurich, Others)' },
+    { header: 'Date Transmitted',      required: false, sample: '2025-01-10'                                                                          },
+    { header: 'Received By',           required: false, sample: 'THRU LBC'                                                                            },
+    { header: 'Remarks',               required: false, sample: ''                                                                                    },
   ],
   borrowed: [
-    { header: 'Client Name', required: true, sample: 'Maria Santos' },
-    { header: 'Client Account ID', required: true, sample: 'ACC-002' },
-    { header: 'Date Released', required: false, sample: '2025-06-01' },
-    { header: 'Documents/Items', required: false, sample: 'Duplicate key' },
-    { header: 'Purpose', required: false, sample: 'For duplication' },
-    { header: 'Additional Details', required: false, sample: 'Honda Click 125i' },
-    { header: 'Borrowing Reason', required: false, sample: 'Client request' },
-    { header: 'Date Returned', required: false, sample: '' },
-    { header: 'Status', required: false, sample: 'Borrowed' },
-    { header: 'Remarks', required: false, sample: '' },
+    { header: 'Client Name',       required: true,  sample: 'Maria Santos'                                                                                                                           },
+    { header: 'Client Account ID', required: false, sample: 'ACC-002'                                                                                                                                },
+    { header: 'Branch',            required: false, sample: 'VMSC Lemery'                                                                                                                           },
+    { header: 'Date Released',     required: false, sample: '2025-06-01'                                                                                                                            },
+    { header: 'Documents/Items',   required: false, sample: 'Duplicate key'                                                                                                                         },
+    { header: 'Purpose / Status',  required: false, sample: 'For Change Class (valid: For Change Class, For Processing of Franchise, For Hire, Key for Duplication, For Pullout, Chattel, Others)' },
+    { header: 'Date Returned',     required: false, sample: ''                                                                                                                                      },
+    { header: 'Remarks',           required: false, sample: ''                                                                                                                                      },
   ],
   followup: [
-    { header: 'Parent Reference', required: true, sample: 'TRN-00001' },
-    { header: 'Follow-up Date', required: false, sample: '2025-07-01' },
-    { header: 'Subject/Concern', required: false, sample: 'Pending ORCR' },
-    { header: 'Details', required: false, sample: 'Branch to follow up with client' },
-    { header: 'Status', required: false, sample: 'Open' },
-    { header: 'Resolved Date', required: false, sample: '' },
-    { header: 'Remarks', required: false, sample: '' },
+    { header: 'Parent Reference', required: true,  sample: 'REC-00001'                       },
+    { header: 'Follow-up Date',   required: false, sample: '2025-07-01'                      },
+    { header: 'Subject/Concern',  required: false, sample: 'Pending ORCR'                    },
+    { header: 'Details',          required: false, sample: 'Branch to follow up with client' },
+    { header: 'Status',           required: false, sample: 'Open'                            },
+    { header: 'Resolved Date',    required: false, sample: ''                                },
+    { header: 'Remarks',          required: false, sample: ''                                },
+  ],
+  // Archive templates share the same columns but records are saved as archived
+  archive_transmittal: [
+    { header: 'Client Name',           required: true,  sample: 'Juan dela Cruz'   },
+    { header: 'Client Account ID',     required: false, sample: 'ACC-001'          },
+    { header: 'Branch',                required: false, sample: 'VMSC Lipa'        },
+    { header: 'Date Released',         required: false, sample: '2025-01-15'       },
+    { header: 'Documents Transmitted', required: false, sample: 'Original ORCR'   },
+    { header: 'Purpose / Status',      required: false, sample: 'Closed Accounts (valid: Closed Accounts, Preterm, Repo Cash Sales, Not Account of Zurich, Others)' },
+    { header: 'Date Transmitted',      required: false, sample: '2025-01-10'       },
+    { header: 'Received By',           required: false, sample: 'THRU LBC'         },
+    { header: 'Remarks',               required: false, sample: ''                 },
+  ],
+  archive_borrowed: [
+    { header: 'Client Name',       required: true,  sample: 'Maria Santos'  },
+    { header: 'Client Account ID', required: false, sample: 'ACC-002'       },
+    { header: 'Branch',            required: false, sample: 'VMSC Lemery'   },
+    { header: 'Date Released',     required: false, sample: '2025-06-01'    },
+    { header: 'Documents/Items',   required: false, sample: 'Duplicate key' },
+    { header: 'Purpose / Status',  required: false, sample: 'Chattel'       },
+    { header: 'Date Returned',     required: false, sample: '2025-07-01'    },
+    { header: 'Remarks',           required: false, sample: ''              },
   ],
 }
 
@@ -80,13 +103,13 @@ export async function downloadTemplate(module) {
 
 /**
  * Check the template version of an uploaded workbook.
- * Returns the detected version or null if not found.
+ * The version metadata row is stripped by readWorkbook, so we infer
+ * compatibility from header matching rather than the version cell.
  * @param {Array<{ sheetName: string, headers: string[], rows: Array<any[]> }>} sheets
  * @param {'transmittal'|'borrowed'|'followup'} module
  * @returns {{ version: number|null, isOutdated: boolean, missingFields: string[] }}
  */
 export function checkTemplateVersion(sheets, module) {
-  const currentVersion = TEMPLATE_VERSIONS[module] || 1
   const currentFields = TEMPLATE_FIELDS[module] || []
   const currentHeaders = currentFields.map((f) => f.header)
 
@@ -107,16 +130,6 @@ export function checkTemplateVersion(sheets, module) {
     return { version: null, isOutdated: false, missingFields: [] }
   }
 
-  // Check for version metadata in row 1 (A1 cell)
-  let version = null
-  const firstRow = bestSheet.rows[0]
-  if (firstRow && firstRow[0]) {
-    const match = firstRow[0].toString().match(/Template Version:\s*(\d+)/i)
-    if (match) {
-      version = Number(match[1])
-    }
-  }
-
   // Find missing required fields
   const missingFields = currentFields
     .filter((f) => f.required)
@@ -124,8 +137,8 @@ export function checkTemplateVersion(sheets, module) {
     .map((f) => f.header)
 
   return {
-    version,
-    isOutdated: version !== null && version < currentVersion,
+    version: null,       // version row is no longer in parsed rows
+    isOutdated: false,   // rely on missingFields to flag incompatible templates
     missingFields,
   }
 }

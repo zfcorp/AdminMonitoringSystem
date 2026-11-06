@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, computed, nextTick } from 'vue'
 import { supabase } from '../lib/supabase'
 import { readWorkbook, mapRows, TRANSMITTAL_FIELDS, BORROWED_FIELDS } from '../utils/excel'
 import { validateImportRow } from '../utils/validators'
@@ -13,6 +13,14 @@ export const useImportsStore = defineStore('imports', () => {
   const loading = ref(false)
   const saving = ref(false)
   const importSummary = ref(null)
+
+  // Progress tracking
+  const progressLabel = ref('')
+  const progressCurrent = ref(0)
+  const progressTotal = ref(0)
+  const progressPercent = computed(() =>
+    progressTotal.value > 0 ? Math.round((progressCurrent.value / progressTotal.value) * 100) : 0
+  )
 
   async function loadFile(file) {
     loading.value = true
@@ -30,28 +38,57 @@ export const useImportsStore = defineStore('imports', () => {
     loading.value = false
   }
 
-  function generatePreview() {
+  async function generatePreview() {
+    // Count total rows first for progress
+    let totalRows = 0
+    for (const sheetName of selectedSheetNames.value) {
+      const sheet = sheets.value.find((s) => s.sheetName === sheetName)
+      if (sheet) totalRows += sheet.rows.length
+    }
+
+    progressLabel.value = 'Generating preview…'
+    progressCurrent.value = 0
+    progressTotal.value = totalRows
+
     const allRows = []
+    const CHUNK = 50 // rows per batch before yielding
+
     for (const sheetName of selectedSheetNames.value) {
       const sheet = sheets.value.find((s) => s.sheetName === sheetName)
       if (!sheet) continue
       const config = sheetConfigs.value[sheetName]
       if (!config) continue
-      const mapped = mapRows(sheet.rows, sheet.headers, config.mapping)
-      mapped.forEach((row) => {
-        const validation = validateImportRow(row, config.targetModule)
-        allRows.push({
-          ...row,
-          _sheetName: sheetName,
-          _targetModule: config.targetModule,
-          _valid: validation.valid,
-          _errors: validation.errors,
-          _duplicate: null,
-          _duplicateDecision: 'create',
-        })
-      })
+      const baseModule = config.targetModule.replace('archive_', '')
+
+      // Process in batches — map + validate a chunk at a time, then yield
+      for (let start = 0; start < sheet.rows.length; start += CHUNK) {
+        const batchRows = sheet.rows.slice(start, start + CHUNK)
+        const mapped = mapRows(batchRows, sheet.headers, config.mapping)
+
+        for (const row of mapped) {
+          const validation = validateImportRow(row, baseModule)
+          allRows.push({
+            ...row,
+            _sheetName: sheetName,
+            _targetModule: config.targetModule,
+            _valid: validation.valid,
+            _errors: validation.errors,
+            _duplicate: null,
+            _duplicateDecision: 'create',
+          })
+          progressCurrent.value++
+        }
+
+        // Flush Vue reactivity + yield to browser paint after every batch
+        await nextTick()
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      }
     }
+
     previewRows.value = allRows
+    progressLabel.value = ''
+    progressCurrent.value = 0
+    progressTotal.value = 0
   }
 
   /**
@@ -59,6 +96,11 @@ export const useImportsStore = defineStore('imports', () => {
    * Matching rule: same client_name + account_number + date_released + key field.
    */
   async function checkDuplicates() {
+    const validRows = previewRows.value.filter((r) => r._valid)
+    progressLabel.value = 'Checking duplicates…'
+    progressCurrent.value = 0
+    progressTotal.value = validRows.length
+
     for (const row of previewRows.value) {
       if (!row._valid) continue
 
@@ -72,6 +114,7 @@ export const useImportsStore = defineStore('imports', () => {
       if (!clients?.length) {
         row._duplicate = null
         row._duplicateDecision = 'create'
+        progressCurrent.value++
         continue
       }
 
@@ -88,14 +131,23 @@ export const useImportsStore = defineStore('imports', () => {
       if (!accounts?.length) {
         row._duplicate = null
         row._duplicateDecision = 'create'
+        progressCurrent.value++
         continue
       }
 
       const accountId = accounts[0].id
-      const table = row._targetModule === 'transmittal' ? 'transmittals' : 'borrowed_items'
+      const module = row._targetModule.replace('archive_', '') // 'transmittal' or 'borrowed'
+      const isArchive = row._targetModule.startsWith('archive_')
 
-      // Check for duplicate
-      let query = supabase.from(table).select('*').eq('client_id', clientId).eq('client_account_id', accountId)
+      // Check for duplicate in the unified records table
+      let query = supabase
+        .from('records')
+        .select('*')
+        .eq('module', module)
+        .eq('client_id', clientId)
+        .eq('client_account_id', accountId)
+        .eq('is_archived', isArchive)
+
       if (row.date_released) {
         query = query.eq('date_released', formatDateForDB(row.date_released))
       }
@@ -108,7 +160,13 @@ export const useImportsStore = defineStore('imports', () => {
         row._duplicate = null
         row._duplicateDecision = 'create'
       }
+
+      progressCurrent.value++
     }
+
+    progressLabel.value = ''
+    progressCurrent.value = 0
+    progressTotal.value = 0
   }
 
   function setDuplicateDecision(rowIndex, decision) {
@@ -118,10 +176,13 @@ export const useImportsStore = defineStore('imports', () => {
   }
 
   /**
-   * Execute the import: create/update records, write import_records/errors.
+   * Execute the import: create/update records in the unified `records` table,
+   * write import_records/errors.
    */
   async function saveImport() {
     saving.value = true
+
+    const userId = (await supabase.auth.getUser()).data.user?.id
 
     // Create import record
     const { data: importRecord } = await supabase
@@ -132,6 +193,10 @@ export const useImportsStore = defineStore('imports', () => {
 
     const importId = importRecord.id
     let imported = 0, skipped = 0, updated = 0, errors = 0
+
+    progressLabel.value = 'Saving records…'
+    progressCurrent.value = 0
+    progressTotal.value = previewRows.value.length
 
     for (const row of previewRows.value) {
       if (!row._valid) {
@@ -144,56 +209,86 @@ export const useImportsStore = defineStore('imports', () => {
           error_details: row._errors.map((e) => e.message).join('; '),
         })
         errors++
+        progressCurrent.value++
         continue
       }
 
       if (row._duplicateDecision === 'keep') {
         skipped++
+        progressCurrent.value++
         continue
       }
 
       // Resolve client and account
       const clientId = await resolveOrCreateClient(row.client_name.toString())
-      if (!clientId) { errors++; continue }
+      if (!clientId) { errors++; progressCurrent.value++; continue }
 
-      const accountId = await resolveOrCreateAccount(clientId, row.client_account_id.toString())
-      if (!accountId) { errors++; continue }
+      const accountId = await resolveOrCreateAccount(clientId, (row.client_account_id || '').toString() || 'N/A')
+      if (!accountId) { errors++; progressCurrent.value++; continue }
 
-      // Resolve branch name → branch ID (optional field, null if not found)
+      // Resolve branch name → branch ID
       const branchId = await resolveBranch(row.branch)
 
-      const table = row._targetModule === 'transmittal' ? 'transmittals' : 'borrowed_items'
-      const payload = buildPayload(row, clientId, accountId, branchId, row._targetModule)
+      // Resolve purpose/status text → statuses.id
+      const module = row._targetModule.replace('archive_', '') // 'transmittal' or 'borrowed'
+      const isArchive = row._targetModule.startsWith('archive_')
+      const statusId = await resolveStatus(row.purpose_status, module)
+
+      const payload = buildPayload(row, clientId, accountId, branchId, statusId, module, userId, isArchive)
 
       if (row._duplicateDecision === 'update' && row._duplicate) {
         // Capture previous values for undo
-        const { data: existing } = await supabase.from(table).select('*').eq('id', row._duplicate.id).single()
-        await supabase.from(table).update(payload).eq('id', row._duplicate.id)
+        const { data: existing } = await supabase
+          .from('records')
+          .select('*')
+          .eq('id', row._duplicate.id)
+          .single()
+        await supabase.from('records').update(payload).eq('id', row._duplicate.id)
         await supabase.from('import_records').insert({
-          import_id: importId, table_name: table, record_id: row._duplicate.id,
-          action: 'updated', previous_values: existing,
+          import_id: importId,
+          table_name: 'records',
+          record_id: row._duplicate.id,
+          action: 'updated',
+          previous_values: existing,
         })
         updated++
       } else {
         // Create new record
-        const { data: created } = await supabase.from(table).insert(payload).select('id').single()
+        const { data: created } = await supabase
+          .from('records')
+          .insert(payload)
+          .select('id')
+          .single()
         if (created) {
           await supabase.from('import_records').insert({
-            import_id: importId, table_name: table, record_id: created.id, action: 'created',
+            import_id: importId,
+            table_name: 'records',
+            record_id: created.id,
+            action: 'created',
           })
           imported++
+        } else {
+          errors++
         }
       }
+
+      progressCurrent.value++
     }
 
     // Update import record with final counts
     await supabase.from('imports').update({
-      imported_count: imported, skipped_count: skipped,
-      updated_count: updated, error_count: errors, status: 'completed',
+      imported_count: imported,
+      skipped_count: skipped,
+      updated_count: updated,
+      error_count: errors,
+      status: 'completed',
     }).eq('id', importId)
 
     importSummary.value = { importId, imported, skipped, updated, errors, total: previewRows.value.length }
     saving.value = false
+    progressLabel.value = ''
+    progressCurrent.value = 0
+    progressTotal.value = 0
     return importSummary.value
   }
 
@@ -214,10 +309,53 @@ export const useImportsStore = defineStore('imports', () => {
   }
 
   /**
-   * Resolve a branch name from Excel to a branch ID.
-   * Tries exact match first, then case-insensitive partial match.
-   * Returns null if not found — branch will be left blank on the record.
+   * Resolve a free-text status/purpose name to a statuses.id.
+   * Tries exact case-insensitive match first, then partial match.
+   * Scopes to the correct module ('transmittal' | 'borrowed' | 'both').
    */
+  async function resolveStatus(statusName, module) {
+    if (!statusName?.toString().trim()) return null
+    const name = statusName.toString().trim()
+
+    // Try exact match scoped to the module or 'both'
+    const { data: exact, error: e1 } = await supabase
+      .from('statuses')
+      .select('id, name, module')
+      .ilike('name', name)
+      .or(`module.eq.${module},module.eq.both`)
+      .limit(1)
+
+    if (exact?.length) {
+      console.log(`[resolveStatus] "${name}" → exact match id=${exact[0].id}`)
+      return exact[0].id
+    }
+
+    // Partial match fallback
+    const { data: partial } = await supabase
+      .from('statuses')
+      .select('id, name, module')
+      .ilike('name', `%${name}%`)
+      .or(`module.eq.${module},module.eq.both`)
+      .limit(1)
+
+    if (partial?.length) {
+      console.log(`[resolveStatus] "${name}" → partial match "${partial[0].name}" id=${partial[0].id}`)
+      return partial[0].id
+    }
+
+    console.warn(`[resolveStatus] "${name}" (module=${module}) — no match found, falling back to "Others"`)
+
+    // Fallback: use the "Others" status for this module
+    const { data: others } = await supabase
+      .from('statuses')
+      .select('id')
+      .ilike('name', 'Others')
+      .or(`module.eq.${module},module.eq.both`)
+      .limit(1)
+    if (others?.length) return others[0].id
+
+    return null
+  }
   async function resolveBranch(branchName) {
     if (!branchName?.toString().trim()) return null
     const name = branchName.toString().trim()
@@ -241,32 +379,36 @@ export const useImportsStore = defineStore('imports', () => {
     return null
   }
 
-  function buildPayload(row, clientId, accountId, branchId, module) {
-    if (module === 'transmittal') {
-      return {
-        client_id: clientId,
-        client_account_id: accountId,
-        branch_id: branchId || null,
-        date_released: formatDateForDB(row.date_released),
-        documents_transmitted: row.documents_transmitted || null,
-        purpose: row.purpose || null,
-        date_transmitted: formatDateForDB(row.date_transmitted),
-        received_by: row.received_by || null,
-        remarks: row.remarks || null,
-      }
-    }
-    return {
+  function buildPayload(row, clientId, accountId, branchId, statusId, module, userId = null, isArchive = false) {
+    const now = new Date().toISOString()
+    const base = {
+      module,
       client_id: clientId,
       client_account_id: accountId,
       branch_id: branchId || null,
       date_released: formatDateForDB(row.date_released),
-      documents_items: row.documents_items || null,
-      purpose: row.purpose || null,
-      additional_details: row.additional_details || null,
-      borrowing_reason: row.borrowing_reason || null,
-      date_returned: formatDateForDB(row.date_returned),
-      status: row.status || null,
+      purpose_status_id: statusId || null,
       remarks: row.remarks || null,
+      created_by: userId || null,
+      is_archived: isArchive,
+      archived_at: isArchive ? now : null,
+      archived_by: isArchive ? userId : null,
+    }
+
+    if (module === 'transmittal') {
+      return {
+        ...base,
+        document_transmitted: row.documents_transmitted || null,
+        date_transmitted: formatDateForDB(row.date_transmitted),
+        received_by: row.received_by || null,
+      }
+    }
+
+    // borrowed
+    return {
+      ...base,
+      document_transmitted: row.documents_items || null,
+      date_returned: formatDateForDB(row.date_returned),
     }
   }
 
@@ -279,14 +421,35 @@ export const useImportsStore = defineStore('imports', () => {
   }
 
   function autoMapColumns(headers, targetModule) {
-    const fields = targetModule === 'transmittal' ? TRANSMITTAL_FIELDS : BORROWED_FIELDS
+    // Archive modules use the same field sets as their base modules
+    const baseModule = targetModule.replace('archive_', '')
+    const fields = baseModule === 'transmittal' ? TRANSMITTAL_FIELDS : BORROWED_FIELDS
     const mapping = {}
+
+    // Extra aliases so common column names from older files map correctly
+    const ALIASES = {
+      'purpose_status': ['purpose / status', 'purpose/status', 'status', 'purpose', 'purpose status'],
+      'documents_transmitted': ['documents transmitted', 'document transmitted', 'documents'],
+      'documents_items': ['documents/items', 'documents items', 'items', 'documents'],
+      'client_account_id': ['client account id', 'account id', 'account number', 'accountid'],
+      'client_name': ['client name', 'name of client', 'client'],
+      'date_released': ['date released', 'date_released', 'release date'],
+      'date_transmitted': ['date transmitted', 'date_transmitted'],
+      'date_returned': ['date returned', 'date_returned', 'return date'],
+      'received_by': ['received by', 'received_by', 'receiver'],
+    }
+
     headers.forEach((header, index) => {
-      const normalized = header.toLowerCase().trim()
+      const normalized = header.toLowerCase().trim().replace(/\s+/g, ' ')
       const match = fields.find((f) => {
-        const labelNorm = f.label.toLowerCase().trim()
+        const labelNorm = f.label.toLowerCase().trim().replace(/\s+/g, ' ')
         const keyNorm = f.key.toLowerCase().replace(/_/g, ' ').trim()
-        return labelNorm === normalized || keyNorm === normalized
+        const aliases = ALIASES[f.key] || []
+        return (
+          labelNorm === normalized ||
+          keyNorm === normalized ||
+          aliases.includes(normalized)
+        )
       })
       mapping[index] = match ? match.key : '_skip'
     })
@@ -365,10 +528,10 @@ export const useImportsStore = defineStore('imports', () => {
 
     for (const record of details.records) {
       if (record.action === 'created') {
-        await supabase.from(record.table_name).delete().eq('id', record.record_id)
+        await supabase.from('records').delete().eq('id', record.record_id)
       } else if (record.action === 'updated' && record.previous_values) {
         const { id, created_at, updated_at, ...restoreValues } = record.previous_values
-        await supabase.from(record.table_name).update(restoreValues).eq('id', record.record_id)
+        await supabase.from('records').update(restoreValues).eq('id', record.record_id)
       }
     }
 
@@ -383,6 +546,7 @@ export const useImportsStore = defineStore('imports', () => {
   return {
     fileName, sheets, selectedSheetNames, sheetConfigs, previewRows,
     loading, saving, importSummary,
+    progressLabel, progressCurrent, progressTotal, progressPercent,
     importHistory, importDetails,
     loadFile, generatePreview, checkDuplicates, setDuplicateDecision,
     saveImport, autoMapColumns, reset,

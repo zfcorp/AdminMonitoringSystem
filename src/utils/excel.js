@@ -9,17 +9,34 @@ export async function readWorkbook(file) {
   const XLSX = await import('xlsx')
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       try {
+        // Yield before heavy XLSX parsing so the browser can update the UI
+        await new Promise((r) => setTimeout(r, 10))
+
         const data = new Uint8Array(e.target.result)
         const workbook = XLSX.read(data, { type: 'array', cellDates: true })
 
         const sheets = workbook.SheetNames.map((sheetName) => {
           const sheet = workbook.Sheets[sheetName]
-          // header: 1 returns array-of-arrays; first row is headers
           const allRows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' })
-          const headers = (allRows[0] || []).map((h) => String(h || '').trim())
-          const rows = allRows.slice(1).filter((r) =>
+
+          // Detect and skip the template version metadata row.
+          // The version row looks like: ["Template Version: N", "", "", ...]
+          // The real header row follows immediately after.
+          let headerRowIndex = 0
+          if (
+            allRows[0]?.[0] &&
+            String(allRows[0][0]).trim().match(/^Template Version:/i)
+          ) {
+            headerRowIndex = 1
+          }
+
+          // Strip the trailing " *" required-field marker from header names
+          const headers = (allRows[headerRowIndex] || []).map((h) =>
+            String(h || '').trim().replace(/\s*\*$/, '')
+          )
+          const rows = allRows.slice(headerRowIndex + 1).filter((r) =>
             r.some((cell) => cell !== '' && cell !== null && cell !== undefined)
           )
           return { sheetName, headers, rows }
@@ -37,33 +54,31 @@ export async function readWorkbook(file) {
 
 /**
  * System fields available for column mapping, per target module.
+ * Keys must match what buildPayload() reads in imports.js.
  */
 export const TRANSMITTAL_FIELDS = [
-  { key: 'client_name', label: 'Client Name', required: true },
-  { key: 'client_account_id', label: 'Client Account ID', required: true },
-  { key: 'date_released', label: 'Date Released', required: false },
-  { key: 'branch', label: 'Branch', required: false },
-  { key: 'documents_transmitted', label: 'Documents Transmitted', required: false },
-  { key: 'purpose', label: 'Purpose', required: false },
-  { key: 'date_transmitted', label: 'Date Transmitted', required: false },
-  { key: 'received_by', label: 'Received By', required: false },
-  { key: 'remarks', label: 'Remarks', required: false },
-  { key: '_skip', label: '— Skip —', required: false },
+  { key: 'client_name',            label: 'Client Name',            required: true  },
+  { key: 'client_account_id',      label: 'Client Account ID',      required: false },
+  { key: 'branch',                 label: 'Branch',                 required: false },
+  { key: 'date_released',          label: 'Date Released',          required: false },
+  { key: 'documents_transmitted',  label: 'Documents Transmitted',  required: false },
+  { key: 'purpose_status',         label: 'Purpose / Status',       required: false },
+  { key: 'date_transmitted',       label: 'Date Transmitted',       required: false },
+  { key: 'received_by',            label: 'Received By',            required: false },
+  { key: 'remarks',                label: 'Remarks',                required: false },
+  { key: '_skip',                  label: '— Skip —',               required: false },
 ]
 
 export const BORROWED_FIELDS = [
-  { key: 'client_name', label: 'Client Name', required: true },
-  { key: 'client_account_id', label: 'Client Account ID', required: true },
-  { key: 'date_released', label: 'Date Released', required: false },
-  { key: 'branch', label: 'Branch', required: false },
-  { key: 'documents_items', label: 'Documents/Items', required: false },
-  { key: 'purpose', label: 'Purpose', required: false },
-  { key: 'additional_details', label: 'Additional Details', required: false },
-  { key: 'borrowing_reason', label: 'Borrowing Reason', required: false },
-  { key: 'date_returned', label: 'Date Returned', required: false },
-  { key: 'status', label: 'Status', required: false },
-  { key: 'remarks', label: 'Remarks', required: false },
-  { key: '_skip', label: '— Skip —', required: false },
+  { key: 'client_name',       label: 'Client Name',       required: true  },
+  { key: 'client_account_id', label: 'Client Account ID', required: false },
+  { key: 'branch',            label: 'Branch',            required: false },
+  { key: 'date_released',     label: 'Date Released',     required: false },
+  { key: 'documents_items',   label: 'Documents/Items',   required: false },
+  { key: 'purpose_status',    label: 'Purpose / Status',  required: false },
+  { key: 'date_returned',     label: 'Date Returned',     required: false },
+  { key: 'remarks',           label: 'Remarks',           required: false },
+  { key: '_skip',             label: '— Skip —',          required: false },
 ]
 
 /**
@@ -89,3 +104,7 @@ export function mapRows(rows, headers, mapping) {
     return mapped
   })
 }
+
+// Archive import uses the same fields as the live modules
+export const ARCHIVE_TRANSMITTAL_FIELDS = TRANSMITTAL_FIELDS
+export const ARCHIVE_BORROWED_FIELDS = BORROWED_FIELDS

@@ -79,7 +79,8 @@ function formatDateTime(val) {
 const isBorrowed = computed(() => record.value?.module === 'borrowed')
 
 function goToEdit() {
-  router.push({ name: 'record-edit', params: { id: recordId.value } })
+  const routeName = record.value?.module === 'transmittal' ? 'transmittal-edit' : 'record-edit'
+  router.push({ name: routeName, params: { id: recordId.value } })
 }
 
 function goBack() {
@@ -391,11 +392,11 @@ function activityLabel(activity) {
           <div class="fu-form__row">
             <label>
               Follow-up Date <span class="req">*</span>
-              <Calendar v-model="fuForm.follow_up_date" dateFormat="dd-M-yy" showIcon placeholder="Select date" />
+              <Calendar v-model="fuForm.follow_up_date" dateFormat="dd-M-yy" showIcon placeholder="Select date" style="width:100%" />
             </label>
             <label>
               Subject / Concern
-              <InputText v-model="fuForm.subject" placeholder="e.g. Pending ORCR, Key for pickup…" />
+              <InputText v-model="fuForm.subject" placeholder="e.g. Pending ORCR, Key for pickup…" style="width:100%" />
             </label>
           </div>
           <div class="fu-form__row">
@@ -631,9 +632,9 @@ function activityLabel(activity) {
   margin-bottom: 1rem;
 }
 .fu-form__row {
-  display: flex; gap: 1rem; margin-bottom: 0.75rem;
+  display: flex; gap: 1rem; margin-bottom: 0.75rem; align-items: flex-end;
 }
-.fu-form__row label { flex: 1; }
+.fu-form__row label { flex: 1; min-width: 0; }
 .fu-form__actions {
   display: flex; justify-content: flex-end; margin-top: 0.5rem;
 }
@@ -643,6 +644,8 @@ function activityLabel(activity) {
 }
 .fu-form :deep(.p-inputtext),
 .fu-form :deep(.p-calendar),
+.fu-form :deep(.p-calendar .p-inputtext),
+.fu-form :deep(.p-calendar-input),
 .fu-form :deep(.p-textarea) { width: 100%; }
 
 .req { color: #ef4444; }

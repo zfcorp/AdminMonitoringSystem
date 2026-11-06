@@ -105,10 +105,10 @@ function isActive(to) {
   padding-left: 1.75rem;
 }
 
-/* Bottom section pushed down */
+/* Bottom section */
 .app-sidebar__nav--bottom {
-  margin-top: auto;
   border-top: 1px solid #293548;
   padding-top: 0.25rem;
+  margin-top: 0.5rem;
 }
 </style>

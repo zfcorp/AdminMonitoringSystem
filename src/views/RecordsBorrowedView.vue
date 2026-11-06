@@ -39,6 +39,8 @@ const filterDateTo = ref(null)
 const showFilters = ref(false)
 const page = ref(1)
 const perPage = 50
+const selectedRecords = ref([])
+const bulkArchiving = ref(false)
 
 onMounted(async () => {
   await Promise.all([statusesStore.fetch(), branchesStore.fetch()])
@@ -135,6 +137,29 @@ function handleDelete(record) {
     },
   })
 }
+
+async function handleBulkArchive() {
+  if (!selectedRecords.value.length) return
+  confirm.require({
+    message: `Archive ${selectedRecords.value.length} selected record(s)? They will be moved to Borrowed Archive.`,
+    header: 'Bulk Archive',
+    acceptLabel: 'Archive All',
+    rejectLabel: 'Cancel',
+    accept: async () => {
+      bulkArchiving.value = true
+      const ids = selectedRecords.value.map((r) => r.id)
+      const { error } = await recordsStore.bulkArchive(ids)
+      bulkArchiving.value = false
+      if (error) {
+        toast.add({ severity: 'error', summary: 'Error', detail: error.message, life: 5000 })
+        return
+      }
+      toast.add({ severity: 'success', summary: 'Archived', detail: `${ids.length} record(s) moved to Borrowed Archive.`, life: 3000 })
+      selectedRecords.value = []
+      load()
+    },
+  })
+}
 </script>
 
 <template>
@@ -148,6 +173,15 @@ function handleDelete(record) {
       </button>
       <span class="total-label">{{ recordsStore.totalCount }} record(s)</span>
       <div class="topbar__spacer" />
+      <Button
+        v-if="authStore.isAdmin() && selectedRecords.length"
+        :label="`Archive Selected (${selectedRecords.length})`"
+        icon="pi pi-box"
+        severity="warning"
+        size="small"
+        :loading="bulkArchiving"
+        @click="handleBulkArchive"
+      />
       <button class="export-btn" :disabled="exporting" @click="doExcelExport" title="Download Excel">
         <i class="pi pi-file-excel" /> Excel
       </button>
@@ -186,10 +220,13 @@ function handleDelete(record) {
     </div>
 
     <DataTable
+      v-model:selection="selectedRecords"
       :value="recordsStore.records"
       :loading="recordsStore.loading"
       stripedRows
+      dataKey="id"
     >
+      <Column selectionMode="multiple" style="width: 40px" />
       <Column field="id" header="No." style="width: 50px">
         <template #body="slotProps">{{ slotProps.index + 1 }}</template>
       </Column>
@@ -213,7 +250,14 @@ function handleDelete(record) {
       </Column>
       <Column field="document_transmitted" header="Document Transmitted">
         <template #body="slotProps">
-          {{ slotProps.data.document_transmitted || '—' }}
+          <span v-if="!slotProps.data.document_transmitted" class="dim">—</span>
+          <span v-else class="doc-tags">
+            <span
+              v-for="tag in slotProps.data.document_transmitted.split(',').map(s => s.trim()).filter(Boolean)"
+              :key="tag"
+              class="doc-tag"
+            >{{ tag }}</span>
+          </span>
         </template>
       </Column>
       <Column field="purpose_status_id" header="Purpose / Status">
@@ -366,4 +410,20 @@ function handleDelete(record) {
 }
 .returned { color: #065f46; font-size: 0.83rem; }
 .dim { color: #94a3b8; }
+
+.doc-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+.doc-tag {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  background: #dbeafe;
+  color: #1e40af;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
 </style>

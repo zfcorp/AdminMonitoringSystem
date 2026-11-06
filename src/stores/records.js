@@ -29,12 +29,11 @@ const FIELD_LABELS = {
 // Transmittal: only records whose status name is one of the
 //   completed/closed statuses are eligible.
 const TRANSMITTAL_ARCHIVABLE_STATUSES = [
-  'completed',
   'closed accounts',
   'preterm',
   'repo cash sales',
-  'returned',
-  'released',
+  'not account of zurich',
+  'others',
 ]
 
 export const useRecordsStore = defineStore('records', () => {
@@ -282,7 +281,7 @@ export const useRecordsStore = defineStore('records', () => {
       if (!TRANSMITTAL_ARCHIVABLE_STATUSES.includes(statusName)) {
         return {
           eligible: false,
-          reason: `Transmittal records can only be archived when their status is one of: Completed, Closed Accounts, Preterm, Repo Cash Sales, Returned, or Released. Current status: "${record.statuses?.name ?? 'None'}".`,
+          reason: `Transmittal records can only be archived when their status is one of: Closed Accounts, Preterm, Repo Cash Sales, Not Account of Zurich, or Others. Current status: "${record.statuses?.name ?? 'None'}".`,
         }
       }
     }
@@ -302,6 +301,19 @@ export const useRecordsStore = defineStore('records', () => {
     }
 
     return { eligible: true, reason: '' }
+  }
+
+  /**
+   * Bulk archive multiple records by ID (admin only — enforced by RLS).
+   */
+  async function bulkArchive(ids) {
+    const userId = (await supabase.auth.getUser()).data.user?.id
+    const now = new Date().toISOString()
+    const { error } = await supabase
+      .from('records')
+      .update({ is_archived: true, archived_at: now, archived_by: userId })
+      .in('id', ids)
+    return { error }
   }
 
   /**
@@ -433,6 +445,7 @@ export const useRecordsStore = defineStore('records', () => {
     update,
     moveToTransmittal,
     checkArchiveEligibility,
+    bulkArchive,
     archive,
     restore,
     remove,

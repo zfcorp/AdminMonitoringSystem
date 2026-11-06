@@ -9,12 +9,9 @@
 export function validateImportRow(row, targetModule) {
   const errors = []
 
-  // Required fields for all modules
+  // Required fields — only Client Name is mandatory
   if (!row.client_name?.toString().trim()) {
     errors.push({ field: 'client_name', message: 'Missing Client Name' })
-  }
-  if (!row.client_account_id?.toString().trim()) {
-    errors.push({ field: 'client_account_id', message: 'Missing Account ID' })
   }
 
   // Date validation — check that date fields contain parseable dates

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onUnmounted } from 'vue'
 import Button from 'primevue/button'
 import Dropdown from 'primevue/dropdown'
 import DataTable from 'primevue/datatable'
@@ -14,15 +14,48 @@ const importsStore = useImportsStore()
 const currentStep = ref(1)
 const templateWarning = ref(null) // 1=Upload, 2=Select, 3=Map, 4=Preview, 5=Duplicates, 6=Summary
 
+// --- Processing timer ---
+const elapsedSeconds = ref(0)
+const timerActive = ref(false)
+let timerInterval = null
+
+function startTimer() {
+  elapsedSeconds.value = 0
+  timerActive.value = true
+  timerInterval = setInterval(() => {
+    elapsedSeconds.value++
+  }, 1000)
+}
+
+function stopTimer() {
+  timerActive.value = false
+  clearInterval(timerInterval)
+  timerInterval = null
+}
+
+const elapsedDisplay = computed(() => {
+  const s = elapsedSeconds.value
+  if (s < 60) return `${s}s`
+  const m = Math.floor(s / 60)
+  const rem = s % 60
+  return `${m}m ${rem}s`
+})
+
+onUnmounted(() => clearInterval(timerInterval))
+
 const moduleOptions = [
-  { label: 'Transmittal Monitoring', value: 'transmittal' },
-  { label: 'Borrowed Documents & Items', value: 'borrowed' },
+  { label: 'Transmittal', value: 'transmittal' },
+  { label: 'Borrowed', value: 'borrowed' },
+  { label: 'Archive — Transmittal', value: 'archive_transmittal' },
+  { label: 'Archive — Borrowed', value: 'archive_borrowed' },
 ]
 
 function onFileSelect(event) {
   const file = event.target.files[0]
   if (file) {
+    startTimer()
     importsStore.loadFile(file).then(() => {
+      stopTimer()
       // Check template version
       const firstConfig = Object.values(importsStore.sheetConfigs)[0]
       if (firstConfig) {
@@ -67,10 +100,13 @@ function updateModule(sheetName, module) {
 
 async function goToStep(step) {
   if (step === 4) {
-    importsStore.generatePreview()
+    await importsStore.generatePreview()
+    // Let the progress bar disappear and Vue settle before mounting the table
+    await new Promise((resolve) => setTimeout(resolve, 50))
   }
   if (step === 5) {
-    importsStore.generatePreview()
+    await importsStore.generatePreview()
+    await new Promise((resolve) => setTimeout(resolve, 50))
     await importsStore.checkDuplicates()
   }
   currentStep.value = step
@@ -88,12 +124,22 @@ const validCount = computed(() => importsStore.previewRows.filter((r) => r._vali
 const errorCount = computed(() => importsStore.previewRows.filter((r) => !r._valid).length)
 const duplicateCount = computed(() => importsStore.previewRows.filter((r) => r._duplicate).length)
 
+// Preview filter
+const previewFilter = ref('all') // 'all' | 'errors'
+const filteredPreviewRows = computed(() =>
+  previewFilter.value === 'errors'
+    ? importsStore.previewRows.filter((r) => !r._valid)
+    : importsStore.previewRows
+)
+
 const duplicateRows = computed(() => importsStore.previewRows
   .map((row, index) => ({ row, index }))
   .filter((item) => item.row._duplicate))
 
 async function confirmImport() {
+  startTimer()
   await importsStore.saveImport()
+  stopTimer()
   currentStep.value = 6
 }
 
@@ -115,6 +161,10 @@ function reset() {
       <Button label="Transmittal" size="small" text @click="handleDownloadTemplate('transmittal')" />
       <Button label="Borrowed" size="small" text @click="handleDownloadTemplate('borrowed')" />
       <Button label="Follow-up" size="small" text @click="handleDownloadTemplate('followup')" />
+      <span class="template-divider">|</span>
+      <span class="template-label template-label--archive">Archive:</span>
+      <Button label="Archive Transmittal" size="small" text @click="handleDownloadTemplate('archive_transmittal')" />
+      <Button label="Archive Borrowed" size="small" text @click="handleDownloadTemplate('archive_borrowed')" />
     </div>
 
     <!-- Template Version Warning -->
@@ -147,11 +197,28 @@ function reset() {
       </div>
     </div>
 
+    <!-- Progress Bar (shown during preview generation, duplicate check, and import) -->
+    <div v-if="importsStore.progressTotal > 0" class="progress-overlay">
+      <div class="progress-box">
+        <div class="progress-label">
+          <span>{{ importsStore.progressLabel }}</span>
+          <span class="progress-count">{{ importsStore.progressCurrent }} / {{ importsStore.progressTotal }}</span>
+        </div>
+        <div class="progress-track">
+          <div class="progress-bar" :style="{ width: importsStore.progressPercent + '%' }"></div>
+        </div>
+        <div class="progress-pct">{{ importsStore.progressPercent }}%</div>
+      </div>
+    </div>
+
     <!-- Step 1: Upload -->
     <div v-if="currentStep === 1" class="step-content">
       <p class="step-hint">Select an Excel file (.xlsx or .xls) to import.</p>
       <input type="file" accept=".xlsx,.xls" class="file-input" @change="onFileSelect" />
-      <p v-if="importsStore.loading" class="loading-text">Reading file…</p>
+      <p v-if="importsStore.loading" class="loading-text">
+        <i class="pi pi-spin pi-spinner"></i>
+        Reading file… <span class="elapsed-time">{{ elapsedDisplay }}</span>
+      </p>
     </div>
 
     <!-- Step 2: Select Worksheets -->
@@ -242,9 +309,32 @@ function reset() {
         <span class="summary-item summary-item--err">
           <strong>{{ errorCount }}</strong> with errors
         </span>
+        <div class="preview-filter">
+          <button
+            :class="['filter-pill', { 'filter-pill--active': previewFilter === 'all' }]"
+            @click="previewFilter = 'all'"
+          >All rows</button>
+          <button
+            :class="['filter-pill', 'filter-pill--err', { 'filter-pill--active': previewFilter === 'errors' }]"
+            @click="previewFilter = 'errors'"
+            :disabled="errorCount === 0"
+          >
+            <i class="pi pi-exclamation-circle" /> Errors only ({{ errorCount }})
+          </button>
+        </div>
       </div>
 
-      <DataTable :value="importsStore.previewRows" stripedRows scrollable scrollHeight="500px">
+      <DataTable
+        :value="filteredPreviewRows"
+        stripedRows
+        scrollable
+        scrollHeight="500px"
+        paginator
+        :rows="50"
+        :rowsPerPageOptions="[25, 50, 100]"
+        paginatorTemplate="FirstPageLink PrevPageLink PageLinks NextPageLink LastPageLink RowsPerPageDropdown CurrentPageReport"
+        currentPageReportTemplate="{first}–{last} of {totalRecords}"
+      >
         <Column field="_sheetName" header="Worksheet" style="width: 120px" />
         <Column field="_rowNumber" header="Row" style="width: 60px" />
         <Column field="client_name" header="Client Name" />
@@ -254,6 +344,11 @@ function reset() {
         <Column field="documents_transmitted" header="Documents">
           <template #body="slotProps">
             {{ slotProps.data.documents_transmitted || slotProps.data.documents_items || '' }}
+          </template>
+        </Column>
+        <Column header="Purpose / Status">
+          <template #body="slotProps">
+            {{ slotProps.data.purpose_status || '—' }}
           </template>
         </Column>
         <Column field="_valid" header="Status" style="width: 100px">
@@ -335,12 +430,18 @@ function reset() {
       <div class="step-actions">
         <Button label="Back" text @click="prevStep" />
         <Button label="Start Over" severity="secondary" text @click="reset" />
-        <Button
-          label="Confirm Import"
-          icon="pi pi-check"
-          :loading="importsStore.saving"
-          @click="confirmImport"
-        />
+        <div class="import-action-group">
+          <span v-if="importsStore.saving" class="elapsed-time elapsed-time--saving">
+            <i class="pi pi-spin pi-spinner"></i>
+            Importing… {{ elapsedDisplay }}
+          </span>
+          <Button
+            label="Confirm Import"
+            icon="pi pi-check"
+            :loading="importsStore.saving"
+            @click="confirmImport"
+          />
+        </div>
       </div>
     </div>
 
@@ -348,6 +449,9 @@ function reset() {
     <div v-if="currentStep === 6" class="step-content">
       <div v-if="importsStore.importSummary" class="import-summary">
         <h3>Import Complete</h3>
+        <p v-if="elapsedSeconds > 0" class="import-duration">
+          <i class="pi pi-clock"></i> Completed in {{ elapsedDisplay }}
+        </p>
         <div class="summary-grid">
           <div class="summary-stat">
             <div class="summary-stat__value">{{ importsStore.importSummary.total }}</div>
@@ -537,9 +641,36 @@ function reset() {
 
 .preview-summary {
   display: flex;
+  align-items: center;
   gap: 1.5rem;
   margin-bottom: 1rem;
+  flex-wrap: wrap;
 }
+
+.preview-filter {
+  display: flex;
+  gap: 0.4rem;
+  margin-left: auto;
+}
+
+.filter-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0.75rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  background: #fff;
+  color: #475569;
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+.filter-pill:hover:not(:disabled) { background: #f1f5f9; }
+.filter-pill--active { background: #1e293b; color: #fff; border-color: #1e293b; }
+.filter-pill--err.filter-pill--active { background: #dc2626; border-color: #dc2626; }
+.filter-pill:disabled { opacity: 0.4; cursor: not-allowed; }
 
 .summary-item {
   font-size: 0.9rem;
@@ -644,6 +775,13 @@ function reset() {
   font-weight: 500;
   color: #475569;
 }
+.template-label--archive {
+  color: #7c3aed;
+}
+.template-divider {
+  color: #cbd5e1;
+  font-size: 0.9rem;
+}
 
 .template-warning {
   display: flex;
@@ -655,5 +793,82 @@ function reset() {
   border-radius: 8px;
   margin-bottom: 1rem;
   font-size: 0.85rem;
+}
+
+.elapsed-time {
+  font-weight: 600;
+  color: #3b82f6;
+}
+
+.elapsed-time--saving {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  color: #3b82f6;
+}
+
+.import-action-group {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.import-duration {
+  font-size: 0.85rem;
+  color: #64748b;
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+/* Progress bar */
+.progress-overlay {
+  margin-bottom: 1rem;
+}
+
+.progress-box {
+  background: #fff;
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  padding: 1rem 1.25rem;
+}
+
+.progress-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #1e40af;
+  margin-bottom: 0.5rem;
+}
+
+.progress-count {
+  font-size: 0.8rem;
+  color: #64748b;
+  font-weight: 400;
+}
+
+.progress-track {
+  height: 10px;
+  background: #e2e8f0;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #3b82f6, #6366f1);
+  border-radius: 999px;
+  transition: width 0.2s ease;
+}
+
+.progress-pct {
+  text-align: right;
+  font-size: 0.78rem;
+  color: #94a3b8;
+  margin-top: 0.25rem;
 }
 </style>
