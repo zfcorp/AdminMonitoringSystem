@@ -15,6 +15,8 @@ import ClientListView from '../views/ClientListView.vue'
 import ClientDetailView from '../views/ClientDetailView.vue'
 import ImportView from '../views/ImportView.vue'
 import ReportsView from '../views/ReportsView.vue'
+import ArchiveBorrowedView from '../views/ArchiveBorrowedView.vue'
+import ArchiveTransmittalView from '../views/ArchiveTransmittalView.vue'
 import ImportHistoryView from '../views/ImportHistoryView.vue'
 
 const routes = [
@@ -105,6 +107,18 @@ const routes = [
         name: 'reports',
         component: ReportsView,
         meta: { title: 'Reports' },
+      },
+      {
+        path: 'archive/borrowed',
+        name: 'archive-borrowed',
+        component: ArchiveBorrowedView,
+        meta: { title: 'Borrowed Archive' },
+      },
+      {
+        path: 'archive/transmittal',
+        name: 'archive-transmittal',
+        component: ArchiveTransmittalView,
+        meta: { title: 'Transmittal Archive' },
       },
       {
         path: 'import',

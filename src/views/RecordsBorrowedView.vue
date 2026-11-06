@@ -10,8 +10,10 @@ import Calendar from 'primevue/calendar'
 import { useRecordsStore } from '../stores/records'
 import { useStatusesStore } from '../stores/statuses'
 import { useBranchesStore } from '../stores/branches'
+import { useAuthStore } from '../stores/auth'
 import { useConfirmDelete } from '../composables/useConfirmDelete'
 import { useToast } from 'primevue/usetoast'
+import { useConfirm } from 'primevue/useconfirm'
 import { format } from 'date-fns'
 import { exportToExcel, exportToCsv } from '../utils/export'
 
@@ -20,12 +22,14 @@ function formatDate(val) {
   try { return format(new Date(val), 'dd-MMM-yyyy') } catch { return val }
 }
 
-const router = useRouter()
+const router      = useRouter()
 const recordsStore = useRecordsStore()
 const statusesStore = useStatusesStore()
 const branchesStore = useBranchesStore()
+const authStore   = useAuthStore()
 const { confirmDelete } = useConfirmDelete()
-const toast = useToast()
+const confirm     = useConfirm()
+const toast       = useToast()
 
 const searchQuery = ref('')
 const filterBranchId = ref(null)
@@ -80,8 +84,37 @@ async function doExcelExport() {
   exporting.value = false
 }
 
+async function doCsvExport() {
+  exporting.value = true
+  await exportToCsv(recordsStore.records, 'borrowed')
+  exporting.value = false
+}
+
 function openDetail(record) {
   router.push({ name: 'record-detail', params: { id: record.id } })
+}
+
+async function handleArchive(record) {
+  const { eligible, reason } = await recordsStore.checkArchiveEligibility(record)
+  if (!eligible) {
+    toast.add({ severity: 'warn', summary: 'Cannot Archive', detail: reason, life: 7000 })
+    return
+  }
+  confirm.require({
+    message: `Archive record ${record.reference_number} for ${record.clients?.name}? It will be moved to Borrowed Archive and removed from this list.`,
+    header: 'Archive Record',
+    acceptLabel: 'Archive',
+    rejectLabel: 'Cancel',
+    accept: async () => {
+      const { error } = await recordsStore.archive(record.id)
+      if (error) {
+        toast.add({ severity: 'error', summary: 'Error', detail: error.message, life: 5000 })
+        return
+      }
+      toast.add({ severity: 'success', summary: 'Archived', detail: `${record.reference_number} moved to Borrowed Archive.`, life: 3000 })
+      load()
+    },
+  })
 }
 
 function openNew() {
@@ -200,7 +233,7 @@ function handleDelete(record) {
           <span v-else class="dim">—</span>
         </template>
       </Column>
-      <Column header="Actions" style="width: 120px">
+      <Column header="Actions" style="width: 150px">
         <template #body="slotProps">
           <div class="action-btns">
             <button class="act-btn act-btn--view" @click.stop="openDetail(slotProps.data)" title="View">
@@ -209,7 +242,20 @@ function handleDelete(record) {
             <button class="act-btn act-btn--edit" @click.stop="router.push({ name: 'record-edit', params: { id: slotProps.data.id } })" title="Edit">
               <i class="pi pi-pencil" />
             </button>
-            <button class="act-btn act-btn--delete" @click.stop="handleDelete(slotProps.data)" title="Delete">
+            <button
+              v-if="authStore.isAdmin()"
+              class="act-btn act-btn--archive"
+              @click.stop="handleArchive(slotProps.data)"
+              title="Archive"
+            >
+              <i class="pi pi-box" />
+            </button>
+            <button
+              v-if="authStore.isAdmin()"
+              class="act-btn act-btn--delete"
+              @click.stop="handleDelete(slotProps.data)"
+              title="Delete"
+            >
               <i class="pi pi-trash" />
             </button>
           </div>
@@ -309,6 +355,8 @@ function handleDelete(record) {
 .act-btn--view:hover { background: #dbeafe; }
 .act-btn--edit   { color: #0369a1; background: #f0f9ff; }
 .act-btn--edit:hover { background: #e0f2fe; }
+.act-btn--archive { color: #7c3aed; background: #ede9fe; }
+.act-btn--archive:hover { background: #ddd6fe; }
 .act-btn--delete { color: #dc2626; background: #fef2f2; }
 .act-btn--delete:hover { background: #fee2e2; }
 
