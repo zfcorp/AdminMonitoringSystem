@@ -101,13 +101,16 @@ function updateModule(sheetName, module) {
 async function goToStep(step) {
   if (step === 4) {
     await importsStore.generatePreview()
-    // Let the progress bar disappear and Vue settle before mounting the table
     await new Promise((resolve) => setTimeout(resolve, 50))
   }
   if (step === 5) {
-    await importsStore.generatePreview()
-    await new Promise((resolve) => setTimeout(resolve, 50))
+    // Only regenerate preview if coming from step 3 (not from step 4 where it's already done)
+    if (currentStep.value < 4) {
+      await importsStore.generatePreview()
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    }
     await importsStore.checkDuplicates()
+    await new Promise((resolve) => setTimeout(resolve, 50))
   }
   currentStep.value = step
 }

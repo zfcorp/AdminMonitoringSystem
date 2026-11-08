@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import DataTable from 'primevue/datatable'
 import Column from 'primevue/column'
@@ -36,6 +36,8 @@ const page = ref(1)
 const perPage = 50
 const selectedRecords = ref([])
 const bulkArchiving = ref(false)
+
+const totalPages = computed(() => Math.max(1, Math.ceil(recordsStore.totalCount / perPage)))
 
 onMounted(async () => {
   await Promise.all([statusesStore.fetch(), branchesStore.fetch()])
@@ -181,6 +183,15 @@ async function handleBulkArchive() {
         :loading="bulkArchiving"
         @click="handleBulkArchive"
       />
+      <div class="page-controls">
+        <button class="page-btn" :disabled="page === 1" @click="page--; load()">
+          <i class="pi pi-chevron-left" />
+        </button>
+        <span class="page-label">Page {{ page }} of {{ totalPages }}</span>
+        <button class="page-btn" :disabled="page >= totalPages" @click="page++; load()">
+          <i class="pi pi-chevron-right" />
+        </button>
+      </div>
       <button class="export-btn" :disabled="exporting" @click="doExcelExport" title="Download Excel">
         <i class="pi pi-file-excel" /> Excel
       </button>
@@ -415,6 +426,33 @@ async function handleBulkArchive() {
   border-radius: 999px;
   font-size: 0.72rem;
   font-weight: 600;
+  white-space: nowrap;
+}
+
+.page-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.page-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  color: #475569;
+  cursor: pointer;
+  font-size: 0.8rem;
+  transition: background 0.12s;
+}
+.page-btn:hover:not(:disabled) { background: #f1f5f9; }
+.page-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.page-label {
+  font-size: 0.82rem;
+  color: #475569;
   white-space: nowrap;
 }
 </style>

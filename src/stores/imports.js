@@ -92,8 +92,11 @@ export const useImportsStore = defineStore('imports', () => {
   }
 
   /**
-   * Check each valid row for existing duplicates in the database.
-   * Matching rule: same client_name + account_number + date_released + key field.
+   * Check each valid row for existing duplicates using bulk DB queries.
+   * 3 queries total regardless of row count:
+   *  1. Fetch all clients
+   *  2. Fetch all accounts for matched clients
+   *  3. One records query using all collected client+account id pairs
    */
   async function checkDuplicates() {
     const validRows = previewRows.value.filter((r) => r._valid)
@@ -101,60 +104,114 @@ export const useImportsStore = defineStore('imports', () => {
     progressCurrent.value = 0
     progressTotal.value = validRows.length
 
+    // ── Step 1: resolve client names → IDs in bulk ───────────────────
+    const uniqueClientNames = [...new Set(
+      validRows.map((r) => r.client_name?.toString().trim().toLowerCase()).filter(Boolean)
+    )]
+
+    // Fetch all clients and filter in memory to avoid .in() 1000-row limit issues
+    const allClientsForDupe = await (async () => {
+      const PAGE = 1000
+      let from = 0, all = []
+      while (true) {
+        const { data } = await supabase.from('clients').select('id, name').range(from, from + PAGE - 1)
+        if (!data?.length) break
+        all = all.concat(data)
+        if (data.length < PAGE) break
+        from += PAGE
+      }
+      return all
+    })()
+
+    const clientMap = new Map()
+    for (const c of allClientsForDupe) {
+      if (uniqueClientNames.includes(c.name.toLowerCase())) {
+        clientMap.set(c.name.toLowerCase(), c.id)
+      }
+    }
+
+    // ── Step 2: resolve account numbers → IDs in bulk ────────────────
+    const clientIds = [...new Set([...clientMap.values()])]
+    const accountRows = clientIds.length ? await (async () => {
+      const PAGE = 1000
+      let from = 0, all = []
+      while (true) {
+        const { data } = await supabase
+          .from('client_accounts').select('id, client_id, account_number')
+          .in('client_id', clientIds)
+          .range(from, from + PAGE - 1)
+        if (!data?.length) break
+        all = all.concat(data)
+        if (data.length < PAGE) break
+        from += PAGE
+      }
+      return all
+    })() : []
+
+    const accountMap = new Map()
+    for (const a of accountRows) accountMap.set(`${a.client_id}::${a.account_number}`, a.id)
+
+    // ── Step 3: collect all (client_id, account_id) pairs ────────────
+    const pairSet = new Set()
+    for (const row of validRows) {
+      const clientId  = clientMap.get(row.client_name?.toString().trim().toLowerCase())
+      const accountNum = (row.client_account_id || '').toString().trim() || 'N/A'
+      const accountId = clientId ? accountMap.get(`${clientId}::${accountNum}`) : null
+      if (clientId && accountId) pairSet.add(`${clientId}::${accountId}`)
+    }
+
+    // ── Step 4: one bulk query for existing records ───────────────────
+    const allClientIds  = [...new Set([...pairSet].map((p) => Number(p.split('::')[0])))]
+    const allAccountIds = [...new Set([...pairSet].map((p) => Number(p.split('::')[1])))]
+
+    const module = validRows[0]?._targetModule?.replace('archive_', '') ?? 'transmittal'
+    const isArchive = validRows[0]?._targetModule?.startsWith('archive_') ?? false
+
+    let existingRecords = []
+    if (allClientIds.length > 0) {
+      const { data } = await supabase
+        .from('records')
+        .select('id, client_id, client_account_id, date_released, module, is_archived')
+        .in('client_id', allClientIds)
+        .in('client_account_id', allAccountIds)
+        .eq('module', module)
+        .eq('is_archived', isArchive)
+      existingRecords = data || []
+    }
+
+    // Build lookup: `${clientId}::${accountId}::${date}` → record
+    const existingMap = new Map()
+    for (const rec of existingRecords) {
+      const dateKey = rec.date_released || 'null'
+      existingMap.set(`${rec.client_id}::${rec.client_account_id}::${dateKey}`, rec)
+      // also index without date for fallback
+      if (!existingMap.has(`${rec.client_id}::${rec.client_account_id}`)) {
+        existingMap.set(`${rec.client_id}::${rec.client_account_id}`, rec)
+      }
+    }
+
+    // ── Step 5: match rows against the map ───────────────────────────
     for (const row of previewRows.value) {
       if (!row._valid) continue
 
-      // Resolve client by name
-      const { data: clients } = await supabase
-        .from('clients')
-        .select('id')
-        .ilike('name', `%${row.client_name}%`)
-        .limit(1)
+      const clientId   = clientMap.get(row.client_name?.toString().trim().toLowerCase())
+      const accountNum = (row.client_account_id || '').toString().trim() || 'N/A'
+      const accountId  = clientId ? accountMap.get(`${clientId}::${accountNum}`) : null
 
-      if (!clients?.length) {
+      if (!clientId || !accountId) {
         row._duplicate = null
         row._duplicateDecision = 'create'
         progressCurrent.value++
         continue
       }
 
-      const clientId = clients[0].id
+      const dateKey = row.date_released ? formatDateForDB(row.date_released) : 'null'
+      const match =
+        existingMap.get(`${clientId}::${accountId}::${dateKey}`) ||
+        (dateKey === 'null' ? existingMap.get(`${clientId}::${accountId}`) : null)
 
-      // Resolve account
-      const { data: accounts } = await supabase
-        .from('client_accounts')
-        .select('id')
-        .eq('client_id', clientId)
-        .eq('account_number', row.client_account_id.toString())
-        .limit(1)
-
-      if (!accounts?.length) {
-        row._duplicate = null
-        row._duplicateDecision = 'create'
-        progressCurrent.value++
-        continue
-      }
-
-      const accountId = accounts[0].id
-      const module = row._targetModule.replace('archive_', '') // 'transmittal' or 'borrowed'
-      const isArchive = row._targetModule.startsWith('archive_')
-
-      // Check for duplicate in the unified records table
-      let query = supabase
-        .from('records')
-        .select('*')
-        .eq('module', module)
-        .eq('client_id', clientId)
-        .eq('client_account_id', accountId)
-        .eq('is_archived', isArchive)
-
-      if (row.date_released) {
-        query = query.eq('date_released', formatDateForDB(row.date_released))
-      }
-      const { data: existing } = await query.limit(1)
-
-      if (existing?.length > 0) {
-        row._duplicate = existing[0]
+      if (match) {
+        row._duplicate = match
         row._duplicateDecision = 'keep'
       } else {
         row._duplicate = null
@@ -176,106 +233,247 @@ export const useImportsStore = defineStore('imports', () => {
   }
 
   /**
-   * Execute the import: create/update records in the unified `records` table,
-   * write import_records/errors.
+   * Execute the import using bulk operations to avoid N+1 DB calls.
+   *
+   * Strategy:
+   *  1. Pre-fetch all clients, accounts, branches, statuses into memory
+   *  2. Resolve each row against in-memory maps (no per-row DB calls)
+   *  3. Bulk-create any missing clients / accounts in one insert each
+   *  4. Bulk-insert all new records in chunks of 500
+   *  5. Bulk-insert import_records audit rows and import_errors in one call
    */
   async function saveImport() {
     saving.value = true
-
     const userId = (await supabase.auth.getUser()).data.user?.id
+    const now = new Date().toISOString()
 
-    // Create import record
+    // ── Create import log entry ───────────────────────────────────────
     const { data: importRecord } = await supabase
       .from('imports')
       .insert({ filename: fileName.value, total_records: previewRows.value.length, status: 'processing' })
       .select()
       .single()
-
     const importId = importRecord.id
-    let imported = 0, skipped = 0, updated = 0, errors = 0
 
-    progressLabel.value = 'Saving records…'
+    progressLabel.value = 'Loading reference data…'
     progressCurrent.value = 0
     progressTotal.value = previewRows.value.length
 
+    // ── Step 1: pre-fetch reference tables ───────────────────────────
+    // Use range pagination to fetch ALL rows past Supabase's 1000-row default limit
+    async function fetchAll(table, columns) {
+      const PAGE = 1000
+      let from = 0
+      let all = []
+      while (true) {
+        const { data, error } = await supabase
+          .from(table)
+          .select(columns)
+          .range(from, from + PAGE - 1)
+        if (error || !data?.length) break
+        all = all.concat(data)
+        if (data.length < PAGE) break
+        from += PAGE
+      }
+      return all
+    }
+
+    const [allClients, allAccounts, allBranches, allStatuses] = await Promise.all([
+      fetchAll('clients', 'id, name'),
+      fetchAll('client_accounts', 'id, client_id, account_number'),
+      supabase.from('branches').select('id, name').then((r) => r.data || []),
+      supabase.from('statuses').select('id, name, module').then((r) => r.data || []),
+    ])
+
+    // Build lookup maps
+    const clientMap   = new Map() // name.lower → id
+    for (const c of allClients || []) clientMap.set(c.name.toLowerCase(), c.id)
+
+    const accountMap  = new Map() // `${clientId}::${accountNumber}` → id
+    for (const a of allAccounts || []) accountMap.set(`${a.client_id}::${a.account_number}`, a.id)
+
+    const branchMap   = new Map() // name.lower → id
+    for (const b of allBranches || []) branchMap.set(b.name.toLowerCase(), b.id)
+
+    // Status map: try exact then partial. Pre-resolve all unique status strings.
+    const statusCache = new Map() // raw string → id
+
+    function findStatusId(name, module) {
+      if (!name?.toString().trim()) return null
+      const key = `${name.toLowerCase().trim()}::${module}`
+      if (statusCache.has(key)) return statusCache.get(key)
+      const n = name.toLowerCase().trim()
+      // exact
+      let found = (allStatuses || []).find(
+        (s) => s.name.toLowerCase() === n && (s.module === module || s.module === 'both')
+      )
+      // partial
+      if (!found) found = (allStatuses || []).find(
+        (s) => s.name.toLowerCase().includes(n) && (s.module === module || s.module === 'both')
+      )
+      // fallback to Others
+      if (!found) found = (allStatuses || []).find(
+        (s) => s.name.toLowerCase() === 'others' && (s.module === module || s.module === 'both')
+      )
+      const id = found?.id ?? null
+      statusCache.set(key, id)
+      return id
+    }
+
+    function findBranchId(name) {
+      if (!name?.toString().trim()) return null
+      const n = name.toString().toLowerCase().trim()
+      // exact
+      if (branchMap.has(n)) return branchMap.get(n)
+      // partial
+      for (const [k, v] of branchMap) {
+        if (k.includes(n) || n.includes(k)) return v
+      }
+      return null
+    }
+
+    // ── Step 2: Collect missing clients ──────────────────────────────
+    progressLabel.value = 'Resolving clients…'
+    const missingClientNames = new Set()
+    for (const row of previewRows.value) {
+      if (!row._valid || row._duplicateDecision === 'keep') continue
+      const name = row.client_name?.toString().trim()
+      if (name && !clientMap.has(name.toLowerCase())) missingClientNames.add(name)
+    }
+
+    if (missingClientNames.size > 0) {
+      const { data: newClients } = await supabase
+        .from('clients')
+        .insert([...missingClientNames].map((name) => ({ name })))
+        .select('id, name')
+      for (const c of newClients || []) clientMap.set(c.name.toLowerCase(), c.id)
+    }
+
+    // ── Step 3: Collect missing accounts ─────────────────────────────
+    progressLabel.value = 'Resolving accounts…'
+    const missingAccounts = [] // { client_id, account_number }
+    for (const row of previewRows.value) {
+      if (!row._valid || row._duplicateDecision === 'keep') continue
+      const clientName = row.client_name?.toString().trim()
+      const clientId = clientMap.get(clientName?.toLowerCase())
+      if (!clientId) continue
+      const accountNum = (row.client_account_id || '').toString().trim() || 'N/A'
+      const aKey = `${clientId}::${accountNum}`
+      if (!accountMap.has(aKey)) missingAccounts.push({ client_id: clientId, account_number: accountNum })
+    }
+
+    if (missingAccounts.length > 0) {
+      // Deduplicate before inserting
+      const unique = [...new Map(missingAccounts.map((a) => [`${a.client_id}::${a.account_number}`, a])).values()]
+      const { data: newAccounts } = await supabase
+        .from('client_accounts')
+        .insert(unique)
+        .select('id, client_id, account_number')
+      for (const a of newAccounts || []) accountMap.set(`${a.client_id}::${a.account_number}`, a.id)
+    }
+
+    // ── Step 4: Build payloads ────────────────────────────────────────
+    progressLabel.value = 'Building payloads…'
+    const toInsert   = [] // { payload, rowRef } for new records
+    const toUpdate   = [] // { id, payload, rowRef } for update decisions
+    const errorRows  = [] // invalid rows for import_errors
+
     for (const row of previewRows.value) {
       if (!row._valid) {
-        await supabase.from('import_errors').insert({
-          import_id: importId,
-          worksheet_name: row._sheetName,
-          row_number: row._rowNumber,
-          client_name: row.client_name?.toString() || '',
-          account_id: row.client_account_id?.toString() || '',
-          error_details: row._errors.map((e) => e.message).join('; '),
-        })
-        errors++
+        errorRows.push(row)
         progressCurrent.value++
         continue
       }
-
       if (row._duplicateDecision === 'keep') {
-        skipped++
         progressCurrent.value++
         continue
       }
 
-      // Resolve client and account
-      const clientId = await resolveOrCreateClient(row.client_name.toString())
-      if (!clientId) { errors++; progressCurrent.value++; continue }
+      const clientName = row.client_name?.toString().trim()
+      const clientId   = clientMap.get(clientName?.toLowerCase())
+      if (!clientId) { progressCurrent.value++; continue }
 
-      const accountId = await resolveOrCreateAccount(clientId, (row.client_account_id || '').toString() || 'N/A')
-      if (!accountId) { errors++; progressCurrent.value++; continue }
+      const accountNum = (row.client_account_id || '').toString().trim() || 'N/A'
+      const accountId  = accountMap.get(`${clientId}::${accountNum}`)
+      if (!accountId) { progressCurrent.value++; continue }
 
-      // Resolve branch name → branch ID
-      const branchId = await resolveBranch(row.branch)
-
-      // Resolve purpose/status text → statuses.id
-      const module = row._targetModule.replace('archive_', '') // 'transmittal' or 'borrowed'
+      const branchId = findBranchId(row.branch)
+      const module   = row._targetModule.replace('archive_', '')
       const isArchive = row._targetModule.startsWith('archive_')
-      const statusId = await resolveStatus(row.purpose_status, module)
+      const statusId = findStatusId(row.purpose_status, module)
 
       const payload = buildPayload(row, clientId, accountId, branchId, statusId, module, userId, isArchive)
 
       if (row._duplicateDecision === 'update' && row._duplicate) {
-        // Capture previous values for undo
-        const { data: existing } = await supabase
-          .from('records')
-          .select('*')
-          .eq('id', row._duplicate.id)
-          .single()
-        await supabase.from('records').update(payload).eq('id', row._duplicate.id)
-        await supabase.from('import_records').insert({
-          import_id: importId,
-          table_name: 'records',
-          record_id: row._duplicate.id,
-          action: 'updated',
-          previous_values: existing,
-        })
-        updated++
+        toUpdate.push({ id: row._duplicate.id, payload, row })
       } else {
-        // Create new record
-        const { data: created } = await supabase
-          .from('records')
-          .insert(payload)
-          .select('id')
-          .single()
-        if (created) {
-          await supabase.from('import_records').insert({
-            import_id: importId,
-            table_name: 'records',
-            record_id: created.id,
-            action: 'created',
-          })
-          imported++
-        } else {
-          errors++
-        }
+        toInsert.push({ payload, row })
       }
-
       progressCurrent.value++
     }
 
-    // Update import record with final counts
+    await nextTick()
+
+    // ── Step 5: Bulk insert new records ───────────────────────────────
+    progressLabel.value = 'Inserting records…'
+    progressCurrent.value = 0
+    progressTotal.value = toInsert.length + toUpdate.length
+
+    let imported = 0, updated = 0, errors = errorRows.length
+    const auditRows = [] // for import_records bulk insert
+
+    const INSERT_CHUNK = 500
+    for (let i = 0; i < toInsert.length; i += INSERT_CHUNK) {
+      const chunk = toInsert.slice(i, i + INSERT_CHUNK)
+      const { data: created, error: insertError } = await supabase
+        .from('records')
+        .insert(chunk.map((c) => c.payload))
+        .select('id')
+      if (!insertError && created) {
+        for (const rec of created) {
+          auditRows.push({ import_id: importId, table_name: 'records', record_id: rec.id, action: 'created' })
+          imported++
+        }
+      } else {
+        errors += chunk.length
+      }
+      progressCurrent.value += chunk.length
+      await nextTick()
+      await new Promise((r) => setTimeout(r, 0))
+    }
+
+    // ── Step 6: Process updates (still row-by-row but usually few) ───
+    for (const { id, payload, row } of toUpdate) {
+      const { data: existing } = await supabase.from('records').select('*').eq('id', id).single()
+      await supabase.from('records').update(payload).eq('id', id)
+      auditRows.push({ import_id: importId, table_name: 'records', record_id: id, action: 'updated', previous_values: existing })
+      updated++
+      progressCurrent.value++
+    }
+
+    // ── Step 7: Bulk insert audit + errors ────────────────────────────
+    progressLabel.value = 'Saving audit log…'
+    if (auditRows.length > 0) {
+      for (let i = 0; i < auditRows.length; i += 500) {
+        await supabase.from('import_records').insert(auditRows.slice(i, i + 500))
+      }
+    }
+    if (errorRows.length > 0) {
+      const errPayloads = errorRows.map((row) => ({
+        import_id: importId,
+        worksheet_name: row._sheetName,
+        row_number: row._rowNumber,
+        client_name: row.client_name?.toString() || '',
+        account_id: row.client_account_id?.toString() || '',
+        error_details: row._errors.map((e) => e.message).join('; '),
+      }))
+      for (let i = 0; i < errPayloads.length; i += 500) {
+        await supabase.from('import_errors').insert(errPayloads.slice(i, i + 500))
+      }
+    }
+
+    const skipped = previewRows.value.filter((r) => r._duplicateDecision === 'keep').length
+
     await supabase.from('imports').update({
       imported_count: imported,
       skipped_count: skipped,
@@ -526,13 +724,19 @@ export const useImportsStore = defineStore('imports', () => {
   async function undoImport(importId) {
     const details = await fetchImportDetails(importId)
 
-    for (const record of details.records) {
-      if (record.action === 'created') {
-        await supabase.from('records').delete().eq('id', record.record_id)
-      } else if (record.action === 'updated' && record.previous_values) {
-        const { id, created_at, updated_at, ...restoreValues } = record.previous_values
-        await supabase.from('records').update(restoreValues).eq('id', record.record_id)
-      }
+    const createdIds = details.records
+      .filter((r) => r.action === 'created')
+      .map((r) => r.record_id)
+
+    // Bulk delete all created records in one query
+    if (createdIds.length > 0) {
+      await supabase.from('records').delete().in('id', createdIds)
+    }
+
+    // Restore updated records (still row-by-row as each has different previous_values)
+    for (const record of details.records.filter((r) => r.action === 'updated' && r.previous_values)) {
+      const { id, created_at, updated_at, ...restoreValues } = record.previous_values
+      await supabase.from('records').update(restoreValues).eq('id', record.record_id)
     }
 
     await supabase.from('imports').update({
