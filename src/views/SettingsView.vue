@@ -80,11 +80,13 @@ async function addUser() {
   }
   addingUser.value = true
   const { data: { session } } = await supabase.auth.getSession()
-  const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-user`, {
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.replace(/\/$/, '')
+  const res = await fetch(`${supabaseUrl}/functions/v1/create-user`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${session?.access_token}`,
+      'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
     },
     body: JSON.stringify({
       email: newUserEmail.value,
@@ -92,10 +94,10 @@ async function addUser() {
       role: newUserRole.value,
     }),
   })
-  const result = await res.json()
+  const result = await res.json().catch(() => ({ error: `HTTP ${res.status}` }))
   addingUser.value = false
   if (!res.ok || result.error) {
-    toast.add({ severity: 'error', summary: 'Error', detail: result.error || 'Failed to create user.', life: 5000 })
+    toast.add({ severity: 'error', summary: 'Error', detail: result.error || `HTTP ${res.status}: Failed to create user.`, life: 8000 })
     return
   }
   toast.add({ severity: 'success', summary: 'User Created', detail: `${newUserEmail.value} has been added.`, life: 3000 })
@@ -142,15 +144,17 @@ async function saveEditUser() {
   }
   savingEditUser.value = true
   const { data: { session } } = await supabase.auth.getSession()
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.replace(/\/$/, '')
   const body = { userId: editingUser.value.id }
   if (editUserEmail.value !== editingUser.value.email) body.email = editUserEmail.value
   if (editUserPassword.value)                          body.password = editUserPassword.value
 
-  const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/update-user`, {
+  const res = await fetch(`${supabaseUrl}/functions/v1/update-user`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${session?.access_token}`,
+      'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
     },
     body: JSON.stringify(body),
   })
