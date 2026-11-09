@@ -26,6 +26,19 @@ app.use(PrimeVue, {
 app.use(ToastService)
 app.use(ConfirmationService)
 
+// Click-outside directive — closes dropdowns when clicking away
+app.directive('click-outside', {
+  beforeMount(el, binding) {
+    el._clickOutsideHandler = (event) => {
+      if (!el.contains(event.target)) binding.value(event)
+    }
+    document.addEventListener('mousedown', el._clickOutsideHandler)
+  },
+  unmounted(el) {
+    document.removeEventListener('mousedown', el._clickOutsideHandler)
+  },
+})
+
 // Initialise auth state before mounting so the router guard
 // has the session available on first navigation.
 const authStore = useAuthStore()
