@@ -64,16 +64,23 @@ function switchMode(m) {
       <form v-if="mode === 'login'" class="login-form" @submit.prevent="handleLogin">
         <label>
           Email
-          <input v-model="email" type="email" placeholder="admin@zurichfinance.com" autocomplete="email" :disabled="loading" />
+          <input
+            v-model="email"
+            type="email"
+            placeholder="admin@zurichfinance.com"
+            autocomplete="email"
+            :disabled="loading"
+          />
         </label>
         <label>
           Password
-          <div class="password-wrap">
-            <input v-model="password" :type="showPassword ? 'text' : 'password'" placeholder="••••••••" autocomplete="current-password" :disabled="loading" />
-            <button type="button" class="pw-toggle" @click="showPassword = !showPassword" tabindex="-1">
-              <i :class="showPassword ? 'pi pi-eye-slash' : 'pi pi-eye'" />
-            </button>
-          </div>
+          <input
+            v-model="password"
+            type="password"
+            placeholder="••••••••"
+            autocomplete="current-password"
+            :disabled="loading"
+          />
         </label>
         <button type="submit" class="login-btn" :disabled="loading">
           {{ loading ? 'Signing in…' : 'Sign In' }}

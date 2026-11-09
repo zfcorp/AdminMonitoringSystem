@@ -30,7 +30,7 @@ function isActive(to) {
 
 <template>
   <aside class="app-sidebar">
-    <div class="app-sidebar__title">Zurich Finance</div>
+    <div class="app-sidebar__title">Zurich Finance Corporation</div>
     <div class="app-sidebar__subtitle">Admin Monitoring System</div>
 
     <ul class="app-sidebar__nav">
