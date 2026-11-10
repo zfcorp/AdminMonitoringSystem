@@ -302,20 +302,46 @@ export const useImportsStore = defineStore('imports', () => {
       if (!name?.toString().trim()) return null
       const key = `${name.toLowerCase().trim()}::${module}`
       if (statusCache.has(key)) return statusCache.get(key)
-      const n = name.toLowerCase().trim()
-      // exact
-      let found = (allStatuses || []).find(
-        (s) => s.name.toLowerCase() === n && (s.module === module || s.module === 'both')
+
+      const moduleStatuses = (allStatuses || []).filter(
+        (s) => s.module === module || s.module === 'both'
       )
-      // partial
-      if (!found) found = (allStatuses || []).find(
-        (s) => s.name.toLowerCase().includes(n) && (s.module === module || s.module === 'both')
-      )
-      // fallback to Others
-      if (!found) found = (allStatuses || []).find(
-        (s) => s.name.toLowerCase() === 'others' && (s.module === module || s.module === 'both')
-      )
-      const id = found?.id ?? null
+
+      function matchOne(raw) {
+        const n = raw.toLowerCase().trim()
+        if (!n) return null
+        // 1. exact match
+        let found = moduleStatuses.find((s) => s.name.toLowerCase() === n)
+        // 2. the status name contains the input (e.g. "Key for Duplication" contains "for duplication")
+        if (!found) found = moduleStatuses.find((s) => s.name.toLowerCase().includes(n))
+        // 3. the input contains the status name (e.g. "for duplication/repo unit" contains "duplication")
+        if (!found) found = moduleStatuses.find((s) => n.includes(s.name.toLowerCase()))
+        // 4. word-level partial — any word in the status name appears in the input
+        if (!found) found = moduleStatuses.find((s) => {
+          const words = s.name.toLowerCase().split(/\s+/).filter((w) => w.length > 3)
+          return words.length > 0 && words.some((w) => n.includes(w))
+        })
+        return found?.id ?? null
+      }
+
+      // Split compound values: "for duplication/repo unit", "chattel, pullout", "hire & change class"
+      const parts = name.toString().split(/[\/,&;]+/).map((p) => p.trim()).filter(Boolean)
+
+      let id = null
+      // Try the full original string first
+      id = matchOne(name.toString())
+      // If no match, try each part
+      if (!id) {
+        for (const part of parts) {
+          id = matchOne(part)
+          if (id) break
+        }
+      }
+      // Final fallback to "Others"
+      if (!id) {
+        id = moduleStatuses.find((s) => s.name.toLowerCase() === 'others')?.id ?? null
+      }
+
       statusCache.set(key, id)
       return id
     }
