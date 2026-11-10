@@ -28,9 +28,7 @@ async function loadReport() {
     .select(`
       id, reference_number, follow_up_date, subject, details,
       status, resolved_date, remarks,
-      records(reference_number, module, clients(name), client_accounts(account_number)),
-      transmittals(reference_number, clients(name), client_accounts(account_number)),
-      borrowed_items(reference_number, clients(name), client_accounts(account_number))
+      records(reference_number, module, clients(name), client_accounts(account_number))
     `)
     .order('follow_up_date', { ascending: true })
 
@@ -60,22 +58,10 @@ function formatDate(val) {
 
 function parentInfo(fu) {
   if (fu.records) return {
-    ref: fu.records.reference_number,
-    client: fu.records.clients?.name,
+    ref:     fu.records.reference_number,
+    client:  fu.records.clients?.name,
     account: fu.records.client_accounts?.account_number,
-    module: fu.records.module === 'transmittal' ? 'Transmittal' : 'Borrowed',
-  }
-  if (fu.transmittals) return {
-    ref: fu.transmittals.reference_number,
-    client: fu.transmittals.clients?.name,
-    account: fu.transmittals.client_accounts?.account_number,
-    module: 'Transmittal',
-  }
-  if (fu.borrowed_items) return {
-    ref: fu.borrowed_items.reference_number,
-    client: fu.borrowed_items.clients?.name,
-    account: fu.borrowed_items.client_accounts?.account_number,
-    module: 'Borrowed',
+    module:  fu.records.module === 'transmittal' ? 'Transmittal' : 'Borrowed',
   }
   return { ref: '—', client: '—', account: '—', module: '—' }
 }

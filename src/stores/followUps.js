@@ -2,18 +2,19 @@ import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { supabase } from '../lib/supabase'
 
+// Follow-ups only link to the unified `records` table now
 const SELECT_RELATIONS =
-  '*, transmittals(id, reference_number, clients(name), client_accounts(account_number)), borrowed_items(id, reference_number, clients(name), client_accounts(account_number)), records(id, reference_number, module, clients(name), client_accounts(account_number))'
+  '*, records(id, reference_number, module, clients(name), client_accounts(account_number))'
 
 export const useFollowUpsStore = defineStore('followUps', () => {
-  const followUps = ref([])
+  const followUps  = ref([])
   const totalCount = ref(0)
-  const loading = ref(false)
+  const loading    = ref(false)
 
   async function fetch({
-    page = 1,
+    page    = 1,
     perPage = 20,
-    sortBy = { field: 'follow_up_date', order: 'desc' },
+    sortBy  = { field: 'follow_up_date', order: 'desc' },
     filters = {},
   } = {}) {
     loading.value = true
@@ -28,10 +29,8 @@ export const useFollowUpsStore = defineStore('followUps', () => {
       query = query.not('resolved_date', 'is', null)
     }
 
-    if (filters.parentType === 'transmittal' && filters.parentId) {
-      query = query.eq('transmittal_id', filters.parentId)
-    } else if (filters.parentType === 'borrowed' && filters.parentId) {
-      query = query.eq('borrowed_item_id', filters.parentId)
+    if (filters.parentId) {
+      query = query.eq('record_id', filters.parentId)
     }
 
     if (sortBy) {
@@ -39,34 +38,23 @@ export const useFollowUpsStore = defineStore('followUps', () => {
     }
 
     const from = (page - 1) * perPage
-    const to = from + perPage - 1
-    query = query.range(from, to)
+    query = query.range(from, from + perPage - 1)
 
     const { data, error, count } = await query
     if (!error) {
-      followUps.value = data
+      followUps.value  = data
       totalCount.value = count || 0
     }
     loading.value = false
     return { data, error, count }
   }
 
-  /**
-   * Fetch follow-ups linked to a specific parent record.
-   * @param {'transmittal'|'borrowed'} type
-   * @param {number} parentId
-   */
   async function fetchByParent(type, parentId) {
-    const column =
-      type === 'transmittal' ? 'transmittal_id' :
-      type === 'record'      ? 'record_id'      :
-                               'borrowed_item_id'
     const { data, error } = await supabase
       .from('follow_ups')
       .select(SELECT_RELATIONS)
-      .eq(column, parentId)
+      .eq('record_id', parentId)
       .order('follow_up_date', { ascending: false })
-
     return { data, error }
   }
 
@@ -76,7 +64,6 @@ export const useFollowUpsStore = defineStore('followUps', () => {
       .select(SELECT_RELATIONS)
       .eq('id', id)
       .single()
-
     return { data, error }
   }
 
@@ -86,7 +73,6 @@ export const useFollowUpsStore = defineStore('followUps', () => {
       .insert(payload)
       .select(SELECT_RELATIONS)
       .single()
-
     return { data, error }
   }
 
@@ -97,16 +83,9 @@ export const useFollowUpsStore = defineStore('followUps', () => {
       .eq('id', id)
       .select(SELECT_RELATIONS)
       .single()
-
     return { data, error }
   }
 
-  /**
-   * Manually mark a follow-up as Resolved.
-   * Sets status to 'Resolved' and resolved_date to today.
-   * This is the ONLY way a follow-up becomes resolved —
-   * returning a borrowed item does NOT auto-resolve follow-ups.
-   */
   async function markResolved(id) {
     const today = new Date().toISOString().split('T')[0]
     const { data, error } = await supabase
@@ -115,34 +94,27 @@ export const useFollowUpsStore = defineStore('followUps', () => {
       .eq('id', id)
       .select(SELECT_RELATIONS)
       .single()
-
     return { data, error }
   }
 
   async function remove(id) {
-    const { error } = await supabase
-      .from('follow_ups')
-      .delete()
-      .eq('id', id)
-
+    const { error } = await supabase.from('follow_ups').delete().eq('id', id)
     return { error }
   }
 
   /**
-   * Search for parent records (transmittals or borrowed items)
-   * by reference_number for the follow-up form parent selector.
-   * @param {'transmittal'|'borrowed'} type
-   * @param {string} query
+   * Search for parent records by reference number or client name.
+   * Uses the unified records table only.
    */
   async function searchParents(type, query) {
-    const table = type === 'transmittal' ? 'transmittals' : 'borrowed_items'
     const { data, error } = await supabase
-      .from(table)
-      .select('id, reference_number, clients(name)')
+      .from('records')
+      .select('id, reference_number, module, clients(name)')
+      .eq('module', type)
+      .eq('is_archived', false)
       .ilike('reference_number', `%${query}%`)
       .order('reference_number')
       .limit(10)
-
     return { data, error }
   }
 

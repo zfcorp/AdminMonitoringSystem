@@ -88,13 +88,7 @@ function parentInfo(row) {
       routeName,
     }
   }
-  if (row.transmittals) {
-    return { type: 'Transmittal', ref: row.transmittals.reference_number, client: row.transmittals.clients?.name, account: row.transmittals.client_accounts?.account_number, recordId: null, routeName: null }
-  }
-  if (row.borrowed_items) {
-    return { type: 'Borrowed', ref: row.borrowed_items.reference_number, client: row.borrowed_items.clients?.name, account: row.borrowed_items.client_accounts?.account_number, recordId: null, routeName: null }
-  }
-  return { type: '', ref: '', client: '', account: '', recordId: null, routeName: null }
+  return { type: '—', ref: '—', client: '—', account: '—', recordId: null, routeName: null }
 }
 
 function goToNew() {
