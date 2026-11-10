@@ -59,8 +59,8 @@ export async function readWorkbook(file) {
 export const TRANSMITTAL_FIELDS = [
   { key: 'client_name',            label: 'Client Name',            required: true  },
   { key: 'client_account_id',      label: 'Client Account ID',      required: false },
-  { key: 'branch',                 label: 'Branch',                 required: false },
   { key: 'date_released',          label: 'Date Released',          required: false },
+  { key: 'branch',                 label: 'Branch',                 required: false },
   { key: 'documents_transmitted',  label: 'Documents Transmitted',  required: false },
   { key: 'purpose_status',         label: 'Purpose / Status',       required: false },
   { key: 'date_transmitted',       label: 'Date Transmitted',       required: false },
@@ -72,8 +72,8 @@ export const TRANSMITTAL_FIELDS = [
 export const BORROWED_FIELDS = [
   { key: 'client_name',       label: 'Client Name',       required: true  },
   { key: 'client_account_id', label: 'Client Account ID', required: false },
-  { key: 'branch',            label: 'Branch',            required: false },
   { key: 'date_released',     label: 'Date Released',     required: false },
+  { key: 'branch',            label: 'Branch',            required: false },
   { key: 'documents_items',   label: 'Documents/Items',   required: false },
   { key: 'purpose_status',    label: 'Purpose / Status',  required: false },
   { key: 'date_returned',     label: 'Date Returned',     required: false },

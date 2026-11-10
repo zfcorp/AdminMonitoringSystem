@@ -12,8 +12,8 @@ const TEMPLATE_FIELDS = {
   transmittal: [
     { header: 'Client Name',           required: true,  sample: 'Juan dela Cruz'                                                                                       },
     { header: 'Client Account ID',     required: false, sample: 'ACC-001'                                                                                              },
-    { header: 'Branch',                required: false, sample: 'VMSC Lipa'                                                                           },
     { header: 'Date Released',         required: false, sample: '2025-01-15'                                                                          },
+    { header: 'Branch',                required: false, sample: 'VMSC Lipa'                                                                           },
     { header: 'Documents Transmitted', required: false, sample: 'Original ORCR'                                                                       },
     { header: 'Purpose / Status',      required: false, sample: 'Closed Accounts (valid: Closed Accounts, Preterm, Repo Cash Sales, Not Account of Zurich, Others)' },
     { header: 'Date Transmitted',      required: false, sample: '2025-01-10'                                                                          },
@@ -23,8 +23,8 @@ const TEMPLATE_FIELDS = {
   borrowed: [
     { header: 'Client Name',       required: true,  sample: 'Maria Santos'                                                                                                                           },
     { header: 'Client Account ID', required: false, sample: 'ACC-002'                                                                                                                                },
-    { header: 'Branch',            required: false, sample: 'VMSC Lemery'                                                                                                                           },
     { header: 'Date Released',     required: false, sample: '2025-06-01'                                                                                                                            },
+    { header: 'Branch',            required: false, sample: 'VMSC Lemery'                                                                                                                           },
     { header: 'Documents/Items',   required: false, sample: 'Duplicate key'                                                                                                                         },
     { header: 'Purpose / Status',  required: false, sample: 'For Change Class (valid: For Change Class, For Processing of Franchise, For Hire, Key for Duplication, For Pullout, Chattel, Others)' },
     { header: 'Date Returned',     required: false, sample: ''                                                                                                                                      },
@@ -43,8 +43,8 @@ const TEMPLATE_FIELDS = {
   archive_transmittal: [
     { header: 'Client Name',           required: true,  sample: 'Juan dela Cruz'   },
     { header: 'Client Account ID',     required: false, sample: 'ACC-001'          },
-    { header: 'Branch',                required: false, sample: 'VMSC Lipa'        },
     { header: 'Date Released',         required: false, sample: '2025-01-15'       },
+    { header: 'Branch',                required: false, sample: 'VMSC Lipa'        },
     { header: 'Documents Transmitted', required: false, sample: 'Original ORCR'   },
     { header: 'Purpose / Status',      required: false, sample: 'Closed Accounts (valid: Closed Accounts, Preterm, Repo Cash Sales, Not Account of Zurich, Others)' },
     { header: 'Date Transmitted',      required: false, sample: '2025-01-10'       },
@@ -54,8 +54,8 @@ const TEMPLATE_FIELDS = {
   archive_borrowed: [
     { header: 'Client Name',       required: true,  sample: 'Maria Santos'  },
     { header: 'Client Account ID', required: false, sample: 'ACC-002'       },
-    { header: 'Branch',            required: false, sample: 'VMSC Lemery'   },
     { header: 'Date Released',     required: false, sample: '2025-06-01'    },
+    { header: 'Branch',            required: false, sample: 'VMSC Lemery'   },
     { header: 'Documents/Items',   required: false, sample: 'Duplicate key' },
     { header: 'Purpose / Status',  required: false, sample: 'Chattel'       },
     { header: 'Date Returned',     required: false, sample: '2025-07-01'    },
