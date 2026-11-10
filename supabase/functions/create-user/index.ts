@@ -7,39 +7,55 @@ const corsHeaders = {
 }
 
 serve(async (req) => {
-  // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
 
   try {
-    // Verify the calling user is an admin
     const authHeader = req.headers.get('Authorization')
     if (!authHeader) {
-      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+      return new Response(JSON.stringify({ error: 'No Authorization header' }), {
         status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }
 
-    // Create a client with the caller's JWT to verify their role
-    const callerClient = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-      { global: { headers: { Authorization: authHeader } } }
-    )
+    const supabaseUrl = Deno.env.get('SUPABASE_URL') ?? ''
+    const serviceKey  = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
 
-    const { data: profile, error: profileError } = await callerClient
+    if (!serviceKey) {
+      return new Response(JSON.stringify({ error: 'Service role key not configured' }), {
+        status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
+
+    // Use service role for everything — bypasses RLS
+    const adminClient = createClient(supabaseUrl, serviceKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    })
+
+    // Verify the caller's JWT
+    const token = authHeader.replace('Bearer ', '').trim()
+    const { data: { user: caller }, error: callerError } = await adminClient.auth.getUser(token)
+
+    if (callerError || !caller) {
+      return new Response(JSON.stringify({ error: `Auth failed: ${callerError?.message ?? 'no user'}` }), {
+        status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
+
+    // Check caller is admin
+    const { data: profile, error: profileError } = await adminClient
       .from('profiles')
       .select('role')
+      .eq('id', caller.id)
       .single()
 
     if (profileError || profile?.role !== 'admin') {
-      return new Response(JSON.stringify({ error: 'Forbidden: admins only' }), {
+      return new Response(JSON.stringify({ error: `Forbidden: role=${profile?.role}, err=${profileError?.message}` }), {
         status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }
 
-    // Parse request body
     const { email, password, role = 'user' } = await req.json()
 
     if (!email || !password) {
@@ -48,16 +64,10 @@ serve(async (req) => {
       })
     }
 
-    // Use service role client to create the user
-    const adminClient = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
-    )
-
     const { data: newUser, error: createError } = await adminClient.auth.admin.createUser({
       email,
       password,
-      email_confirm: true, // skip email confirmation
+      email_confirm: true,
     })
 
     if (createError) {
@@ -66,7 +76,7 @@ serve(async (req) => {
       })
     }
 
-    // Set the role in profiles table
+    // Set role if admin
     if (role === 'admin' && newUser.user) {
       await adminClient
         .from('profiles')
@@ -79,7 +89,7 @@ serve(async (req) => {
     })
 
   } catch (err) {
-    return new Response(JSON.stringify({ error: err.message }), {
+    return new Response(JSON.stringify({ error: `Exception: ${err.message}` }), {
       status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
   }

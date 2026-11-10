@@ -19,15 +19,27 @@ serve(async (req) => {
       })
     }
 
-    // Verify caller is admin
-    const callerClient = createClient(
+    // Use service role client for everything — bypasses RLS
+    const adminClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_ANON_KEY') ?? '',
-      { global: { headers: { Authorization: authHeader } } }
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
     )
 
-    const { data: profile, error: profileError } = await callerClient
-      .from('profiles').select('role').single()
+    // Verify the caller's JWT
+    const token = authHeader.replace('Bearer ', '')
+    const { data: { user: caller }, error: callerError } = await adminClient.auth.getUser(token)
+    if (callerError || !caller) {
+      return new Response(JSON.stringify({ error: 'Invalid token' }), {
+        status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
+
+    // Check caller is admin
+    const { data: profile, error: profileError } = await adminClient
+      .from('profiles')
+      .select('role')
+      .eq('id', caller.id)
+      .single()
 
     if (profileError || profile?.role !== 'admin') {
       return new Response(JSON.stringify({ error: 'Forbidden: admins only' }), {
@@ -42,11 +54,6 @@ serve(async (req) => {
         status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }
-
-    const adminClient = createClient(
-      Deno.env.get('SUPABASE_URL') ?? '',
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
-    )
 
     const updatePayload: { password?: string; email?: string } = {}
     if (password) updatePayload.password = password
