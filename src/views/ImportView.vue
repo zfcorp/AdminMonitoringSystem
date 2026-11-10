@@ -400,30 +400,30 @@ function reset() {
           Review each potential duplicate. Choose whether to keep the existing record
           or update it with the imported data. No records are overwritten automatically.
         </p>
-        <DataTable :value="duplicateRows" stripedRows scrollable scrollHeight="400px">
+        <DataTable :value="duplicateRows" stripedRows scrollable scrollHeight="400px" dataKey="index">
           <Column header="Row" style="width: 60px">
-            <template #body="slotProps">{{ slotProps.item.row._rowNumber }}</template>
+            <template #body="slotProps">{{ slotProps.data.row._rowNumber }}</template>
           </Column>
           <Column header="Client">
-            <template #body="slotProps">{{ slotProps.item.row.client_name }}</template>
+            <template #body="slotProps">{{ slotProps.data.row.client_name }}</template>
           </Column>
           <Column header="Account">
-            <template #body="slotProps">{{ slotProps.item.row.client_account_id }}</template>
+            <template #body="slotProps">{{ slotProps.data.row.client_account_id }}</template>
           </Column>
           <Column header="Existing Ref">
-            <template #body="slotProps">{{ slotProps.item.row._duplicate?.reference_number || '—' }}</template>
+            <template #body="slotProps">{{ slotProps.data.row._duplicate?.reference_number || '—' }}</template>
           </Column>
           <Column header="Decision" style="width: 180px">
             <template #body="slotProps">
               <Dropdown
-                :modelValue="slotProps.item.row._duplicateDecision"
+                :modelValue="slotProps.data.row._duplicateDecision"
                 :options="[
                   { label: 'Keep Existing (Skip)', value: 'keep' },
                   { label: 'Update Existing', value: 'update' },
                 ]"
                 optionLabel="label"
                 optionValue="value"
-                @update:modelValue="(val) => importsStore.setDuplicateDecision(slotProps.item.index, val)"
+                @update:modelValue="(val) => importsStore.setDuplicateDecision(slotProps.data.index, val)"
               />
             </template>
           </Column>
